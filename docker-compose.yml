@@ -121,27 +121,7 @@ services:
   # ==================================================
   # SERVICIO NOTIFICACIONES (Node.js) - [cite: 21, 68]
   # ==================================================
-  notificaciones-service:
-    build: ./notificaciones-service
-    container_name: notificaciones-service
-    environment:
-      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
-      PORT: 8084
-      MONGO_URL: mongodb://db-notificaciones:27017/notificaciones_db
-    depends_on:
-      - message-broker
-    networks:
-      - checkin-net
-    ports:
-      - "8084:8084"
-
-  db-notificaciones:
-    image: mongo:6
-    container_name: db-notificaciones
-    networks:
-      - checkin-net
-
-      # Base de datos propia para Notificaciones [cite: 153]
+  # Base de datos propia para Notificaciones [cite: 153]
   database-notificaciones:
     image: postgres:16
     container_name: database-notificaciones
