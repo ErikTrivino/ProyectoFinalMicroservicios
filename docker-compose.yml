@@ -100,3 +100,80 @@ services:
       - checkin-net
     ports:
       - "8081:8081"
+
+  # ... (tus servicios anteriores) ...
+
+  # ==================================================
+  # MESSAGE BROKER (RabbitMQ) - [cite: 29, 31]
+  # ==================================================
+  message-broker:
+    image: rabbitmq:3-management
+    container_name: message-broker
+    ports:
+      - "5672:5672"   # Puerto de mensajería
+      - "15672:15672" # Interfaz UI
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    networks:
+      - checkin-net
+
+  # ==================================================
+  # SERVICIO NOTIFICACIONES (Node.js) - [cite: 21, 68]
+  # ==================================================
+  notificaciones-service:
+    build: ./notificaciones-service
+    container_name: notificaciones-service
+    environment:
+      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
+      PORT: 8084
+      MONGO_URL: mongodb://db-notificaciones:27017/notificaciones_db
+    depends_on:
+      - message-broker
+    networks:
+      - checkin-net
+    ports:
+      - "8084:8084"
+
+  db-notificaciones:
+    image: mongo:6
+    container_name: db-notificaciones
+    networks:
+      - checkin-net
+
+      # Base de datos propia para Notificaciones [cite: 153]
+  database-notificaciones:
+    image: postgres:16
+    container_name: database-notificaciones
+    environment:
+      POSTGRES_DB: notificaciones_db
+      POSTGRES_USER: notif_user
+      POSTGRES_PASSWORD: notif_pass
+    networks:
+      - checkin-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notif_user -d notificaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # El servicio Node.js
+  notificaciones-service:
+    build: ./notificaciones-service
+    container_name: notificaciones-service
+    environment:
+      DB_HOST: database-notificaciones
+      DB_NAME: notificaciones_db
+      DB_USER: notif_user
+      DB_PASSWORD: notif_pass
+      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
+      PORT: 8084
+    depends_on:
+      database-notificaciones:
+        condition: service_healthy
+      message-broker:
+        condition: service_started
+    networks:
+      - checkin-net
+    ports:
+      - "8084:8084"
