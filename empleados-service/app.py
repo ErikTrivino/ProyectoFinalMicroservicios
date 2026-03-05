@@ -357,10 +357,36 @@ def init_db():
     cur.close()
     conn.close()
 
+def seed_db():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Lista de tuplas con (id, cedula, nombre, email, departamento_id, fecha_ingreso)
+    empleados_test = [
+        ('550e8400-e29b-41d4-a716-446655440000', '10203040', 'Ana García', 'ana.garcia@empresa.com', 'DEP-01', '2023-01-15'),
+        ('678f9012-b34c-52d5-b827-557766551111', '50607080', 'Carlos Ruiz', 'c.ruiz@empresa.com', 'DEP-02', '2023-05-20'),
+        ('789g0123-c45d-63e6-c938-668877662222', '90102030', 'Elena Beltrán', 'e.beltran@empresa.com', 'DEP-01', '2024-02-10')
+    ]
+
+    try:
+        cur.executemany("""
+            INSERT INTO empleados (id, cedula, nombre, email, departamento_id, fecha_ingreso)
+            VALUES (?, ?, ?, ?, ?, ?)
+        """, empleados_test)
+        
+        conn.commit()
+        print(f"Se han insertado {len(empleados_test)} registros de prueba.")
+    except Exception as e:
+        print(f"Error al insertar datos: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
 # ======================================================
 # MAIN
 # ======================================================
 
 if __name__ == '__main__':
     init_db()
+    seed_db()
     app.run(host='0.0.0.0', port=80, debug=True)

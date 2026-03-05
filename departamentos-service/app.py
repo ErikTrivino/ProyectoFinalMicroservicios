@@ -267,6 +267,34 @@ def init_db():
         cur.close()
         conn.close()
 
+def seed_departamentos():
+    conn = get_db()
+    cur = conn.cursor()
+    
+    # Datos de prueba: (id, nombre, descripcion)
+    departamentos_test = [
+        ('DEP-01', 'Recursos Humanos', 'Gestión de talento, nómina y bienestar laboral.'),
+        ('DEP-02', 'Tecnología', 'Desarrollo de software, soporte técnico e infraestructura.'),
+        ('DEP-03', 'Ventas', 'Departamento encargado de la comercialización y atención al cliente.')
+    ]
+
+    try:
+        cur.executemany("""
+            INSERT INTO departamentos (id, nombre, descripcion)
+            VALUES (?, ?, ?)
+        """, departamentos_test)
+        
+        conn.commit()
+        print(f"Se han insertado {len(departamentos_test)} departamentos de prueba.")
+    except Exception as e:
+        # Esto atrapará errores si los IDs ya existen (Primary Key)
+        print(f"Aviso/Error al insertar departamentos: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
+
 if __name__ == '__main__':
     init_db()
+    seed_departamentos()
     app.run(host='0.0.0.0', port=8081)
