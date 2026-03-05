@@ -1,0 +1,30 @@
+# =========================
+# Etapa 1: builder
+# =========================
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Copiamos solo dependencias
+COPY requirements.txt .
+
+# Instalamos dependencias en un path separado
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+
+# =========================
+# Etapa 2: runtime
+# =========================
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copiamos solo lo necesario desde el builder
+COPY --from=builder /install /usr/local
+
+# Copiamos el código de la app
+COPY app.py .
+
+EXPOSE 80
+
+CMD ["python", "app.py"]

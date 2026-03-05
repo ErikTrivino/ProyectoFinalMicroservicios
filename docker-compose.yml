@@ -1,0 +1,102 @@
+version: "3.9"
+
+# =========================
+# Red compartida
+# =========================
+networks:
+  checkin-net:
+    driver: bridge
+
+# =========================
+# Volúmenes persistentes
+# =========================
+volumes:
+  empleados-db-data:
+  departamentos-db-data:
+
+services:
+  # ==================================================
+  # BASE DE DATOS - EMPLEADOS
+  # ==================================================
+  database-empleados:
+    image: postgres:16
+    container_name: database-empleados
+    environment:
+      POSTGRES_DB: empleados_db
+      POSTGRES_USER: empleados_user
+      POSTGRES_PASSWORD: empleados_pass
+    volumes:
+      - empleados-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5437:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U empleados_user -d empleados_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - EMPLEADOS
+  # ==================================================
+  empleados-service:
+    build: ./empleados-service
+    container_name: empleados-service
+    environment:
+      DB_HOST: database-empleados
+      DB_PORT: 5432
+      DB_NAME: empleados_db
+      DB_USER: empleados_user
+      DB_PASSWORD: empleados_pass
+      DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
+    depends_on:
+      database-empleados:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8080:80"
+
+  # ==================================================
+  # BASE DE DATOS - DEPARTAMENTOS
+  # ==================================================
+  database-departamentos:
+    image: postgres:16
+    container_name: database-departamentos
+    environment:
+      POSTGRES_DB: departamentos_db
+      POSTGRES_USER: departamentos_user
+      POSTGRES_PASSWORD: departamentos_pass
+    volumes:
+      - departamentos-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5438:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U departamentos_user -d departamentos_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - DEPARTAMENTOS
+  # ==================================================
+  departamentos-service:
+    build: ./departamentos-service
+    container_name: departamentos-service
+    environment:
+      DB_HOST: database-departamentos
+      DB_PORT: 5432
+      DB_NAME: departamentos_db
+      DB_USER: departamentos_user
+      DB_PASSWORD: departamentos_pass
+      
+    depends_on:
+      database-departamentos:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8081:8081"
