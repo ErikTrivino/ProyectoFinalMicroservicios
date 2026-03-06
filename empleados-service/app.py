@@ -136,7 +136,7 @@ def registrar_empleado():
               example: "juan@email.com"
             departamentoId:
               type: string
-              example: "1"
+              example: "IT"
             fechaIngreso:
               type: string
               format: date
