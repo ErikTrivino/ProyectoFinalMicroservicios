@@ -13,8 +13,31 @@ networks:
 volumes:
   empleados-db-data:
   departamentos-db-data:
+  perfiles-db-data:
+  notificaciones-db-data:
 
 services:
+
+  # ==================================================
+  # MESSAGE BROKER - RABBITMQ (NUEVO - Reto 3)
+  # ==================================================
+  message-broker:
+    image: rabbitmq:3-management
+    container_name: message-broker
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672"     # Puerto AMQP (conexion de servicios)
+      - "15672:15672"   # Puerto Management UI (interfaz web)
+    networks:
+      - checkin-net
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ==================================================
   # BASE DE DATOS - EMPLEADOS
   # ==================================================
@@ -50,9 +73,15 @@ services:
       DB_USER: empleados_user
       DB_PASSWORD: empleados_pass
       DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
+      RABBITMQ_HOST: message-broker          # AGREGAR
+      RABBITMQ_PORT: 5672                    # AGREGAR
+      RABBITMQ_USER: admin                   # AGREGAR
+      RABBITMQ_PASS: admin                   # AGREGAR
     depends_on:
       database-empleados:
         condition: service_healthy
+      message-broker:                        # AGREGAR
+        condition: service_healthy           # AGREGAR
     networks:
       - checkin-net
     ports:
@@ -100,3 +129,51 @@ services:
       - checkin-net
     ports:
       - "8081:8081"
+
+  # ==================================================
+  # BASE DE DATOS - PERFILES (Reto 3)
+  # ==================================================
+  database-perfiles:
+    image: postgres:16
+    container_name: database-perfiles
+    environment:
+      POSTGRES_DB: perfiles_db
+      POSTGRES_USER: perfiles_user
+      POSTGRES_PASSWORD: perfiles_pass
+    volumes:
+      - perfiles-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
+  # ==================================================
+  perfiles-service:
+    build: ./java
+    container_name: perfiles-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
+      SPRING_DATASOURCE_USERNAME: perfiles_user
+      SPRING_DATASOURCE_PASSWORD: perfiles_pass
+      SPRING_RABBITMQ_HOST: message-broker
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin
+    depends_on:
+      database-perfiles:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8083:8083"
+
+  

@@ -1,3 +1,6 @@
+import pika
+import json
+
 from flask import Flask, request, jsonify
 import psycopg2
 import uuid
@@ -52,6 +55,60 @@ def get_db():
         user=os.getenv("DB_USER"),
         password=os.getenv("DB_PASSWORD")
     )
+
+# ======================================================
+# CONEXION RABBITMQ (Reto 3)
+# ======================================================
+
+def get_rabbitmq_connection():
+    """Crea una conexion a RabbitMQ con reintentos."""
+    rabbitmq_host = os.getenv("RABBITMQ_HOST", "message-broker")
+    rabbitmq_port = int(os.getenv("RABBITMQ_PORT", "5672"))
+    rabbitmq_user = os.getenv("RABBITMQ_USER", "admin")
+    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "admin")
+
+    credentials = pika.PlainCredentials(rabbitmq_user, rabbitmq_pass)
+    parameters = pika.ConnectionParameters(
+        host=rabbitmq_host,
+        port=rabbitmq_port,
+        credentials=credentials,
+        connection_attempts=3,
+        retry_delay=2
+    )
+    return pika.BlockingConnection(parameters)
+
+def publicar_evento(exchange, routing_key, mensaje):
+    """Publica un evento en RabbitMQ.
+    Si falla, registra el error pero NO revierte la BD."""
+    try:
+        connection = get_rabbitmq_connection()
+        channel = connection.channel()
+
+        # Declarar el exchange tipo fanout para fan-out pattern
+        channel.exchange_declare(
+            exchange=exchange,
+            exchange_type='fanout',
+            durable=True
+        )
+
+        channel.basic_publish(
+            exchange=exchange,
+            routing_key=routing_key,
+            body=json.dumps(mensaje),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Mensaje persistente
+                content_type='application/json'
+            )
+        )
+
+        connection.close()
+        print(f"[EVENTO] Publicado: {exchange} -> {json.dumps(mensaje)}")
+        return True
+
+    except Exception as e:
+        print(f"[ERROR] No se pudo publicar evento {exchange}: {str(e)}")
+        return False
+
 
 # ======================================================
 # RESPUESTAS ESTÁNDAR
@@ -193,6 +250,16 @@ def registrar_empleado():
 
         conn.commit()
 
+        # Publicar evento de creación (Reto 3)
+        evento = {
+            "id": emp_id,
+            "nombre": data['nombre'],
+            "email": data['email'],
+            "departamentoId": data['departamentoId'],
+            "fechaIngreso": data['fechaIngreso']
+        }
+        publicar_evento("empleado.creado", "", evento)
+
         return respuesta_exitosa("Empleado registrado", {
             "id": emp_id,
             **data
@@ -205,6 +272,66 @@ def registrar_empleado():
     finally:
         cur.close()
         conn.close()
+
+
+# ======================================================
+# DELETE /empleados/{id} (Reto 3)
+# ======================================================
+
+@app.route('/empleados/<id>', methods=['DELETE'])
+def eliminar_empleado(id):
+    """
+    Eliminar un empleado por ID
+    ---
+    tags:
+      - Empleados
+    parameters:
+      - name: id
+        in: path
+        type: string
+        required: true
+        description: ID del empleado
+    responses:
+      200:
+        description: Empleado eliminado correctamente
+      404:
+        description: Empleado no existe
+    """
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("""
+            SELECT id, nombre, email
+            FROM empleados WHERE id=%s
+        """, (id,))
+
+        row = cur.fetchone()
+
+        if not row:
+            return respuesta_error("Empleado no existe", 404)
+
+
+        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
+        conn.commit()
+
+        evento = {
+            "id": row[0],
+            "nombre": row[1],
+            "email": row[2]
+        }
+        publicar_evento("empleado.eliminado", "", evento)
+
+        return respuesta_exitosa("Empleado eliminado", evento)
+
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+
+    finally:
+        cur.close()
+        conn.close()
+
 
 # ======================================================
 # GET /empleados/{id}
