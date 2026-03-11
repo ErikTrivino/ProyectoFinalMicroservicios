@@ -176,4 +176,47 @@ services:
     ports:
       - "8083:8083"
 
+  # ==================================================
+  # BASE DE DATOS - NOTIFICACIONES (Reto 3)
+  # ==================================================
+  database-notificaciones:
+    image: postgres:16
+    container_name: database-notificaciones
+    environment:
+      POSTGRES_DB: notificaciones_db
+      POSTGRES_USER: notificaciones_user
+      POSTGRES_PASSWORD: notificaciones_pass
+    volumes:
+      - notificaciones-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5440:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notificaciones_user -d notificaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - NOTIFICACIONES (Reto 3 / .NET)
+  # ==================================================
+  notificaciones-service:
+    build: ./notificaciones-service
+    container_name: notificaciones-service
+    environment:
+      ConnectionStrings__DefaultConnection: "Host=database-notificaciones;Port=5432;Database=notificaciones_db;Username=notificaciones_user;Password=notificaciones_pass"
+      RabbitMQ__Host: message-broker
+      RabbitMQ__Port: 5672
+      RabbitMQ__User: admin
+      RabbitMQ__Password: admin
+    depends_on:
+      database-notificaciones:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8084:8084"
   
