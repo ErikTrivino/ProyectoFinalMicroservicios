@@ -1,7 +1,7 @@
 const express = require('express');
 const amqp = require('amqplib');
-const sequelize = require('./config/database');
-const Notification = require('./models/Notification');
+const sequelize = require('./── src/config/database');
+const Notification = require('./── src/models/Notification');
 
 const app = express();
 app.use(express.json());
@@ -28,7 +28,7 @@ async function startRabbitMQ() {
         const channel = await connection.createChannel();
         
         // Usamos fanout para que el evento llegue a Perfiles y Notificaciones a la vez [cite: 12]
-        const exchange = 'empleado_events';
+        const exchange = 'empleados_events';
         await channel.assertExchange(exchange, 'fanout', { durable: true });
         
         const q = await channel.assertQueue('notificaciones_queue', { durable: true });
@@ -39,7 +39,7 @@ async function startRabbitMQ() {
         channel.consume(q.queue, async (msg) => {
             if (msg !== null) {
                 const eventData = JSON.parse(msg.content.toString());
-                const eventType = msg.properties.type; // "empleado.creado" o "empleado.eliminado" [cite: 55]
+                const eventType = eventData.tipo; // "empleado.creado" o "empleado.eliminado"
 
                 let tipo = "";
                 let msj = "";

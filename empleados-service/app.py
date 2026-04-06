@@ -9,6 +9,10 @@ import requests
 import pybreaker
 from concurrent.futures import ThreadPoolExecutor
 from requests.exceptions import RequestException
+import pika
+import json
+import pika
+import json
 
 load_dotenv()
 
@@ -39,6 +43,42 @@ breaker = pybreaker.CircuitBreaker(
 )
 
 executor = ThreadPoolExecutor(max_workers=5)
+
+# ======================================================
+# PUBLICACIÓN DE EVENTOS (RabbitMQ)
+# ======================================================
+
+def publicar_evento(tipo_evento, datos_evento):
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(
+            host=os.getenv("RABBITMQ_HOST", "message-broker"),
+            port=int(os.getenv("RABBITMQ_PORT", 5672)),
+            credentials=pika.PlainCredentials(
+                os.getenv("RABBITMQ_USER", "admin"),
+                os.getenv("RABBITMQ_PASS", "admin")
+            )
+        ))
+        channel = connection.channel()
+        
+        # Declarar el exchange
+        channel.exchange_declare(exchange='empleado_events', exchange_type='fanout', durable=True)
+        
+        # Publicar el evento
+        channel.basic_publish(
+            exchange='empleado_events',
+            routing_key='',
+            body=json.dumps(datos_evento),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Persistente
+                type=tipo_evento
+            )
+        )
+        
+        connection.close()
+        print(f"Evento publicado: {tipo_evento}")
+        
+    except Exception as e:
+        print(f"Error publicando evento: {str(e)}")
 
 # ======================================================
 # CONEXIÓN POSTGRESQL
@@ -193,6 +233,16 @@ def registrar_empleado():
 
         conn.commit()
 
+        # Publicar evento de empleado creado
+        publicar_evento('empleado.creado', {
+            'id': emp_id,
+            'cedula': data['cedula'],
+            'nombre': data['nombre'],
+            'email': data['email'],
+            'departamentoId': data['departamentoId'],
+            'fechaIngreso': data['fechaIngreso']
+        })
+
         return respuesta_exitosa("Empleado registrado", {
             "id": emp_id,
             **data
@@ -253,6 +303,73 @@ def obtener_empleado(id):
         "departamentoId": row[4],
         "fechaIngreso": row[5].isoformat()
     })
+
+# ======================================================
+# DELETE /empleados/{id}
+# ======================================================
+
+@app.route('/empleados/<id>', methods=['DELETE'])
+def eliminar_empleado(id):
+    """
+    Eliminar empleado por ID
+    ---
+    tags:
+      - Empleados
+    parameters:
+      - name: id
+        in: path
+        type: string
+        required: true
+        description: ID del empleado
+    responses:
+      200:
+        description: Empleado eliminado correctamente
+      404:
+        description: Empleado no existe
+      500:
+        description: Error interno del servidor
+    """
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        # Verificar que el empleado existe y obtener sus datos
+        cur.execute("""
+            SELECT cedula, nombre, email, departamento_id, fecha_ingreso
+            FROM empleados WHERE id=%s
+        """, (id,))
+        
+        row = cur.fetchone()
+        if not row:
+            return respuesta_error("Empleado no existe", 404)
+        
+        # Guardar datos para el evento
+        empleado_data = {
+            'id': id,
+            'cedula': row[0],
+            'nombre': row[1],
+            'email': row[2],
+            'departamentoId': row[3],
+            'fechaIngreso': row[4].isoformat()
+        }
+        
+        # Eliminar el empleado
+        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
+        conn.commit()
+        
+        # Publicar evento de empleado eliminado
+        publicar_evento('empleado.eliminado', empleado_data)
+        
+        return respuesta_exitosa("Empleado eliminado correctamente")
+        
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+    
+    finally:
+        cur.close()
+        conn.close()
 
 # ======================================================
 # GET /empleados (Paginado)

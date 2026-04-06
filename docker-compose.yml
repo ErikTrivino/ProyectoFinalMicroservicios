@@ -50,6 +50,10 @@ services:
       DB_USER: empleados_user
       DB_PASSWORD: empleados_pass
       DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
+      RABBITMQ_HOST: message-broker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
     depends_on:
       database-empleados:
         condition: service_healthy
