@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import psycopg2
 import uuid
 import os
@@ -11,8 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 from requests.exceptions import RequestException
 import pika
 import json
-import pika
-import json
+import jwt
+from functools import wraps
 
 load_dotenv()
 
@@ -22,6 +22,9 @@ app = Flask(__name__)
 # CONFIGURACIÓN SWAGGER
 # ======================================================
 
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
 swagger = Swagger(app, template={
     "swagger": "2.0",
     "info": {
@@ -30,7 +33,16 @@ swagger = Swagger(app, template={
         "version": "1.0.0"
     },
     "basePath": "/",
-    "schemes": ["http"]
+    "schemes": ["http"],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
+        }
+    },
+    "security": [{"Bearer": []}]
 })
 
 # ======================================================
@@ -61,11 +73,11 @@ def publicar_evento(tipo_evento, datos_evento):
         channel = connection.channel()
         
         # Declarar el exchange
-        channel.exchange_declare(exchange='empleado_events', exchange_type='fanout', durable=True)
+        channel.exchange_declare(exchange='empleados_events', exchange_type='fanout', durable=True)
         
         # Publicar el evento
         channel.basic_publish(
-            exchange='empleado_events',
+            exchange='empleados_events',
             routing_key='',
             body=json.dumps(datos_evento),
             properties=pika.BasicProperties(
@@ -102,6 +114,45 @@ def respuesta_exitosa(mensaje, data=None, status=200):
 
 def respuesta_error(mensaje, status=400):
     return jsonify({"success": False, "message": mensaje, "data": None}), status
+
+# ======================================================
+# AUTENTICACIÓN Y RBAC
+# ======================================================
+
+def obtener_token_autorizacion():
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    return auth_header.split(' ', 1)[1].strip()
+
+
+def validar_token(token):
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    return payload
+
+
+def requerir_rol(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            token = obtener_token_autorizacion()
+            if not token:
+                return respuesta_error('Authorization header missing or malformed', 401)
+            try:
+                payload = validar_token(token)
+            except jwt.ExpiredSignatureError:
+                return respuesta_error('Token expirado', 401)
+            except jwt.InvalidTokenError:
+                return respuesta_error('Token inválido', 401)
+
+            if payload.get('role') not in roles:
+                return respuesta_error('Permiso denegado', 403)
+
+            g.user = payload.get('sub')
+            g.role = payload.get('role')
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # ======================================================
 # VALIDACIÓN DE DEPARTAMENTO (Resiliente)
@@ -144,6 +195,7 @@ def validar_departamento(departamento_id, retries=3):
 # ======================================================
 
 @app.route('/empleados', methods=['POST'])
+@requerir_rol('ADMIN')
 def registrar_empleado():
     """
     Registrar un nuevo empleado
@@ -261,6 +313,7 @@ def registrar_empleado():
 # ======================================================
 
 @app.route('/empleados/<id>', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
 def obtener_empleado(id):
     """
     Obtener empleado por ID
@@ -309,6 +362,7 @@ def obtener_empleado(id):
 # ======================================================
 
 @app.route('/empleados/<id>', methods=['DELETE'])
+@requerir_rol('ADMIN')
 def eliminar_empleado(id):
     """
     Eliminar empleado por ID
@@ -376,6 +430,7 @@ def eliminar_empleado(id):
 # ======================================================
 
 @app.route('/empleados', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
 def listar_empleados():
     """
     Listar empleados con paginación

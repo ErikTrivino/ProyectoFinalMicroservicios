@@ -1,12 +1,17 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import psycopg2
 import os
 from dotenv import load_dotenv
 from flasgger import Swagger, swag_from
+import jwt
+from functools import wraps
 
 load_dotenv()
 
 app = Flask(__name__)
+
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 swagger = Swagger(app, template={
     "swagger": "2.0",
@@ -14,7 +19,18 @@ swagger = Swagger(app, template={
         "title": "API Departamentos",
         "description": "Servicio de gestión de departamentos",
         "version": "1.0.0"
-    }
+    },
+    "basePath": "/",
+    "schemes": ["http"],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
+        }
+    },
+    "security": [{"Bearer": []}]
 })
 
 # =========================
@@ -37,6 +53,44 @@ def respuesta_exitosa(mensaje, data=None, status=200):
 
 def respuesta_error(mensaje, status=400):
     return jsonify({"success": False, "message": mensaje, "data": None}), status
+
+# =========================
+# AUTENTICACIÓN Y RBAC
+# =========================
+
+def obtener_token_autorizacion():
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    return auth_header.split(' ', 1)[1].strip()
+
+
+def validar_token(token):
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+
+def requerir_rol(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            token = obtener_token_autorizacion()
+            if not token:
+                return respuesta_error('Authorization header missing or malformed', 401)
+            try:
+                payload = validar_token(token)
+            except jwt.ExpiredSignatureError:
+                return respuesta_error('Token expirado', 401)
+            except jwt.InvalidTokenError:
+                return respuesta_error('Token inválido', 401)
+
+            if payload.get('role') not in roles:
+                return respuesta_error('Permiso denegado', 403)
+
+            g.user = payload.get('sub')
+            g.role = payload.get('role')
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # =========================
 # POST /departamentos
@@ -67,6 +121,7 @@ def respuesta_error(mensaje, status=400):
         409: {'description': 'Departamento ya existe'}
     }
 })
+@requerir_rol('ADMIN')
 def registrar_departamento():
     data = request.get_json()
 
@@ -124,6 +179,7 @@ def registrar_departamento():
         404: {'description': 'Departamento no existe'}
     }
 })
+@requerir_rol('USER', 'ADMIN')
 def obtener_departamento(id):
     conn = get_db()
     cur = conn.cursor()
@@ -177,6 +233,7 @@ def obtener_departamento(id):
         }
     }
 })
+@requerir_rol('USER', 'ADMIN')
 def listar_departamentos():
     # =========================
     # 1️⃣ Parámetros de paginación
