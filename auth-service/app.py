@@ -11,6 +11,16 @@ import psycopg2
 from dotenv import load_dotenv
 from flasgger import Swagger
 
+"""auth-service/app.py
+
+Servicio de autenticación central del ecosistema de microservicios.
+Expone endpoints para registrar usuarios, iniciar sesión, recuperar/renovar
+contraseñas, validar JWT y sincronizar usuarios a partir de eventos de empleados.
+
+El servicio usa PostgreSQL para el almacenamiento de usuarios y RabbitMQ para
+publicar y consumir eventos de identidad.
+"""
+
 # Cargar variables de entorno desde .env para configurar JWT, BD y RabbitMQ
 load_dotenv()
 
@@ -58,6 +68,7 @@ swagger = Swagger(app, template={
 
 
 def get_db():
+    """Return a new PostgreSQL connection from configured environment variables."""
     return psycopg2.connect(
         host=DB_HOST,
         port=DB_PORT,
@@ -68,11 +79,10 @@ def get_db():
 
 
 def init_db():
-    """Inicializa la base de datos y crea usuarios semilla.
+    """Initialize schema and seed the authentication database.
 
-    - Crea la tabla auth_users si no existe.
-    - Crea un usuario ADMIN activo por defecto.
-    - Crea un usuario USER inactivo por defecto para evitar login inmediato.
+    Creates the auth_users table if missing and ensures a default ADMIN user
+    exists along with a placeholder USER account.
     """
     conn = get_db()
     cur = conn.cursor()
@@ -96,23 +106,27 @@ def init_db():
 
 
 def respuesta_exitosa(mensaje, data=None, status=200):
+    """Build a success response payload with message and optional data."""
     return jsonify({"success": True, "message": mensaje, "data": data}), status
 
 
 def respuesta_error(mensaje, status=400):
+    """Build an error response payload with a message and HTTP status."""
     return jsonify({"success": False, "message": mensaje, "data": None}), status
 
 
 def hash_password(password):
+    """Hash a plaintext password using bcrypt and return the encoded hash."""
     return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
 
 
 def check_password(password, password_hash):
+    """Verify a plaintext password against the stored bcrypt hash."""
     return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
 
 
 def crear_token(payload, expires_delta):
-    """Crea un JWT con los claims estandarizados iat y exp."""
+    """Create a signed JWT with issued-at and expiration claims."""
     now = datetime.datetime.utcnow()
     data = payload.copy()
     data.update({
@@ -123,6 +137,7 @@ def crear_token(payload, expires_delta):
 
 
 def publicar_evento(exchange, tipo_evento, datos_evento):
+    """Publish a durable JSON event to a RabbitMQ fanout exchange."""
     try:
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
@@ -143,6 +158,7 @@ def publicar_evento(exchange, tipo_evento, datos_evento):
 
 
 def obtener_usuario_por_username(username):
+    """Return a single user record from auth_users matching the username."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, username, email, password_hash, role, active FROM auth_users WHERE username=%s", (username,))
@@ -153,6 +169,7 @@ def obtener_usuario_por_username(username):
 
 
 def obtener_usuario_por_email(email):
+    """Return a single user record from auth_users matching the email."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id, username, email, password_hash, role, active FROM auth_users WHERE email=%s", (email,))
@@ -163,6 +180,10 @@ def obtener_usuario_por_email(email):
 
 
 def crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None):
+    """Insert or update a user record in auth_users.
+
+    Keeps username/email uniqueness and updates role, active state, and password hash.
+    """
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT id FROM auth_users WHERE username=%s OR email=%s", (username, email))
@@ -183,6 +204,7 @@ def crear_o_actualizar_usuario(username, email, role='USER', active=False, passw
 
 
 def deshabilitar_usuario_por_email(email):
+    """Deactivate a user account by email in the auth_users table."""
     conn = get_db()
     cur = conn.cursor()
     cur.execute("UPDATE auth_users SET active=false, updated_at=NOW() WHERE email=%s", (email,))
@@ -192,6 +214,10 @@ def deshabilitar_usuario_por_email(email):
 
 
 def procesar_evento_empleado_creado(event_data):
+    """Handle empleado.creado events and create or update the corresponding auth user.
+
+    Generates a password reset token and publishes a usuario.creado event for notifications.
+    """
     email = event_data.get('email')
     if not email:
         return
@@ -209,6 +235,7 @@ def procesar_evento_empleado_creado(event_data):
 
 
 def procesar_evento_empleado_eliminado(event_data):
+    """Handle empleado.eliminado events by deactivating the associated auth user."""
     email = event_data.get('email')
     if not email:
         return
@@ -307,7 +334,7 @@ def register():
 
 
 def start_rabbitmq():
-    """Conecta de forma durable a RabbitMQ para consumir eventos de empleado."""
+    """Connect to RabbitMQ and consume employee lifecycle events indefinitely."""
     while True:
         try:
             connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
