@@ -81,8 +81,8 @@ def get_db():
 def init_db():
     """Initialize schema and seed the authentication database.
 
-    Creates the auth_users table if missing and ensures a default ADMIN user
-    exists along with a placeholder USER account.
+    Creates the auth_users table if missing and ensures default ADMIN and USER
+    accounts exist so other microservices can authenticate against them.
     """
     conn = get_db()
     cur = conn.cursor()
@@ -101,8 +101,28 @@ def init_db():
     conn.commit()
     cur.close()
     conn.close()
-    crear_o_actualizar_usuario(ADMIN_USER, f"{ADMIN_USER}@empresa.com", role='ADMIN', active=True, password_hash=hash_password(ADMIN_PASSWORD))
-    crear_o_actualizar_usuario(DEFAULT_USER, f"{DEFAULT_USER}@empresa.com", role='USER', active=False, password_hash=None)
+    crear_o_actualizar_usuario(
+        ADMIN_USER,
+        f"{ADMIN_USER}@empresa.com",
+        role='ADMIN',
+        active=True,
+        password_hash=hash_password(ADMIN_PASSWORD)
+    )
+    crear_o_actualizar_usuario(
+        DEFAULT_USER,
+        f"{DEFAULT_USER}@empresa.com",
+        role='USER',
+        active=True,
+        password_hash=hash_password(DEFAULT_PASSWORD)
+    )
+
+
+def log_default_credentials():
+    """Print the seeded default authentication credentials for testing."""
+    print('***** Credenciales por defecto para pruebas de autenticación *****')
+    print(f'ADMIN -> usuario: {ADMIN_USER}, contraseña: {ADMIN_PASSWORD}')
+    print(f'USER  -> usuario: {DEFAULT_USER}, contraseña: {DEFAULT_PASSWORD}')
+    print('****************************************************************')
 
 
 def respuesta_exitosa(mensaje, data=None, status=200):
@@ -242,97 +262,6 @@ def procesar_evento_empleado_eliminado(event_data):
     deshabilitar_usuario_por_email(email)
 
 
-@app.route('/auth/register', methods=['POST'])
-def register():
-    """
-    Registrar un nuevo usuario (USER role)
-    ---
-    tags:
-      - Autenticación
-    consumes:
-      - application/json
-    parameters:
-      - in: body
-        name: body
-        required: true
-        schema:
-          type: object
-          required:
-            - username
-            - email
-            - password
-          properties:
-            username:
-              type: string
-              description: Nombre de usuario único
-              example: juan_perez
-            email:
-              type: string
-              description: Correo electrónico único
-              example: juan@empresa.com
-            password:
-              type: string
-              description: Contraseña (mínimo 6 caracteres)
-              example: miPassword123
-    responses:
-      201:
-        description: Usuario registrado exitosamente
-        schema:
-          type: object
-          properties:
-            success:
-              type: boolean
-              example: true
-            message:
-              type: string
-            data:
-              type: object
-              properties:
-                username:
-                  type: string
-                email:
-                  type: string
-                role:
-                  type: string
-                  example: USER
-      400:
-        description: Datos incompletos o inválidos
-      409:
-        description: Usuario o email ya existe
-    """
-    data = request.get_json()
-    if not data or 'username' not in data or 'email' not in data or 'password' not in data:
-        return respuesta_error("username, email y password son obligatorios", 400)
-
-    username = data['username'].lower().strip()
-    email = data['email'].lower().strip()
-    password = data['password']
-
-    if len(password) < 6:
-        return respuesta_error("La contraseña debe tener al menos 6 caracteres", 400)
-
-    if len(username) < 3:
-        return respuesta_error("El usuario debe tener al menos 3 caracteres", 400)
-
-    # Verificar si el usuario ya existe
-    if obtener_usuario_por_username(username):
-        return respuesta_error("El usuario ya existe", 409)
-    
-    if obtener_usuario_por_email(email):
-        return respuesta_error("El email ya está registrado", 409)
-
-    try:
-        password_hash = hash_password(password)
-        crear_o_actualizar_usuario(username, email, role='USER', active=True, password_hash=password_hash)
-        return respuesta_exitosa("Usuario registrado exitosamente. Puede iniciar sesión ahora.", {
-            "username": username,
-            "email": email,
-            "role": "USER"
-        }, 201)
-    except Exception as e:
-        return respuesta_error(f"Error al registrar: {str(e)}", 500)
-
-
 def start_rabbitmq():
     """Connect to RabbitMQ and consume employee lifecycle events indefinitely."""
     while True:
@@ -437,7 +366,7 @@ def login():
     if not data or 'username' not in data or 'password' not in data:
         return respuesta_error("username y password son obligatorios", 400)
 
-    username = data['username']
+    username = data['username'].lower().strip()
     password = data['password']
     user = obtener_usuario_por_username(username)
 
@@ -642,5 +571,6 @@ def health():
 
 if __name__ == '__main__':
     init_db()
+    log_default_credentials()
     threading.Thread(target=start_rabbitmq, daemon=True).start()
     app.run(host='0.0.0.0', port=80, debug=True)
