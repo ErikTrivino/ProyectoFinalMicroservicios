@@ -57,13 +57,7 @@ Se ha implementado un sistema completo de autenticación y autorización basado 
 ### 2.2 Flujo de Autenticación Completo
 
 ```
-1. REGISTRO
-   POST /auth/register
-   └─ username, email, password (min 6 chars)
-   └─ Retorna: success, user role=USER
-   └─ Password: bcrypt hash
-
-2. LOGIN
+1. LOGIN
    POST /auth/login
    └─ username, password
    └─ Valida contra DB (bcrypt check)
@@ -216,29 +210,6 @@ def requerir_rol(*allowed_roles):
 ## 5. Endpoints Implementados
 
 ### 5.1 Auth-Service (Puerto 8082)
-
-#### POST `/auth/register` - Registro de Usuario
-```http
-POST /auth/register HTTP/1.1
-Content-Type: application/json
-
-{
-  "username": "juan_perez",
-  "email": "juan@empresa.com",
-  "password": "SecurePass123"
-}
-
-Response 201:
-{
-  "success": true,
-  "message": "Usuario registrado exitosamente",
-  "data": {
-    "username": "juan_perez",
-    "email": "juan@empresa.com",
-    "role": "USER"
-  }
-}
-```
 
 **Validaciones:**
 - username: mínimo 3 caracteres
@@ -463,7 +434,6 @@ http://localhost:8082/apidocs/
 
 ### 8.2 Endpoints Documentados
 
-- ✅ `POST /auth/register` - Registrar usuario
 - ✅ `POST /auth/login` - Obtener token
 - ✅ `POST /auth/recover-password` - Recuperar contraseña
 - ✅ `POST /auth/reset-password` - Restablecer contraseña

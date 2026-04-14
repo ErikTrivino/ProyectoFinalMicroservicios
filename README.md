@@ -52,34 +52,7 @@
 
 ## Flujo de Autenticación
 
-### 1️⃣ Registro
-
-```http
-POST /auth/register HTTP/1.1
-Host: localhost:8082
-Content-Type: application/json
-
-{
-  "username": "juan_perez",
-  "email": "juan@empresa.com",
-  "password": "miPassword123"
-}
-```
-
-**Respuesta 201:**
-```json
-{
-  "success": true,
-  "message": "Usuario registrado exitosamente",
-  "data": {
-    "username": "juan_perez",
-    "email": "juan@empresa.com",
-    "role": "USER"
-  }
-}
-```
-
-### 2️⃣ Login
+### 1️⃣ Login
 
 ```http
 POST /auth/login HTTP/1.1
@@ -250,17 +223,6 @@ http://localhost:8082/apidocs/
 
 ### Endpoints Principales
 
-#### POST `/auth/register` - Registrar
-```bash
-curl -X POST http://localhost:8082/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "juan",
-    "email": "juan@empresa.com",
-    "password": "Pass123"
-  }'
-```
-
 #### POST `/auth/login` - Login
 ```bash
 curl -X POST http://localhost:8082/auth/login \
@@ -329,23 +291,18 @@ curl -X DELETE http://localhost:8080/empleados/E001 \
 ### Flujo Completo
 
 ```bash
-# 1️⃣ Registrar nuevo usuario
-curl -X POST http://localhost:8082/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username":"maria","email":"maria@empresa.com","password":"MyPass123"}'
-
-# 2️⃣ Login
+# 1️⃣ Login
 RESPONSE=$(curl -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"maria","password":"MyPass123"}')
 
 TOKEN=$(echo $RESPONSE | jq -r '.data.access_token')
 
-# 3️⃣ Usar token
+# 2️⃣ Usar token
 curl -X GET http://localhost:8080/empleados \
   -H "Authorization: Bearer $TOKEN"
 
-# 4️⃣ Intentar operación no autorizada (debe fallar con 403)
+# 3️⃣ Intentar operación no autorizada (debe fallar con 403)
 curl -X POST http://localhost:8080/empleados \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \

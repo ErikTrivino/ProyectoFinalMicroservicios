@@ -17,19 +17,7 @@ docker-compose ps  # Verificar que todos están "Up"
 http://localhost:8082/apidocs/
 ```
 
-### 3️⃣ Registrar usuario
-```http
-POST http://localhost:8082/auth/register
-Content-Type: application/json
-
-{
-  "username": "juan",
-  "email": "juan@empresa.com",
-  "password": "Pass123"
-}
-```
-
-### 4️⃣ Login
+### 3️⃣ Login
 ```http
 POST http://localhost:8082/auth/login
 Content-Type: application/json
@@ -38,6 +26,12 @@ Content-Type: application/json
   "username": "juan",
   "password": "Pass123"
 }
+```
+
+### 4️⃣ Usar el token
+```http
+GET http://localhost:8080/empleados
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 **Guardar:** `access_token` de la respuesta
@@ -67,18 +61,6 @@ curl -X POST http://localhost:8082/auth/login \
 ---
 
 ## 🔑 Endpoints - Auth Service (8082)
-
-### POST `/auth/register`
-Registrar nuevo usuario (role=USER)
-```bash
-curl -X POST http://localhost:8082/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "username": "juan",
-    "email": "juan@empresa.com",
-    "password": "Pass123"
-  }'
-```
 
 ### POST `/auth/login`
 Obtener JWT token

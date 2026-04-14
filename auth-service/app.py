@@ -14,8 +14,8 @@ from flasgger import Swagger
 """auth-service/app.py
 
 Servicio de autenticación central del ecosistema de microservicios.
-Expone endpoints para registrar usuarios, iniciar sesión, recuperar/renovar
-contraseñas, validar JWT y sincronizar usuarios a partir de eventos de empleados.
+Expone endpoints para iniciar sesión, recuperar/renovar contraseñas,
+validar JWT y sincronizar usuarios a partir de eventos de empleados.
 
 El servicio usa PostgreSQL para el almacenamiento de usuarios y RabbitMQ para
 publicar y consumir eventos de identidad.
