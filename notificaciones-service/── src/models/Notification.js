@@ -8,7 +8,7 @@ const Notification = sequelize.define('Notification', {
         primaryKey: true
     },
     tipo: {
-        type: DataTypes.ENUM('BIENVENIDA', 'DESVINCULACION'),
+        type: DataTypes.ENUM('BIENVENIDA', 'DESVINCULACION', 'SEGURIDAD'),
         allowNull: false
     },
     destinatario: {
@@ -25,7 +25,7 @@ const Notification = sequelize.define('Notification', {
     },
     empleadoId: {
         type: DataTypes.STRING, // ID que viene del evento [cite: 86]
-        allowNull: false
+        allowNull: true
     }
 });
 

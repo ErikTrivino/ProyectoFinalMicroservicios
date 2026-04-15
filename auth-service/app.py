@@ -94,10 +94,12 @@ def init_db():
             password_hash TEXT,
             role VARCHAR(20) NOT NULL,
             active BOOLEAN NOT NULL DEFAULT FALSE,
+            empleado_id VARCHAR(255),
             created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW(),
             updated_at TIMESTAMP WITHOUT TIME ZONE DEFAULT NOW()
         );
     """)
+    cur.execute("ALTER TABLE auth_users ADD COLUMN IF NOT EXISTS empleado_id VARCHAR(255);")
     conn.commit()
     cur.close()
     conn.close()
@@ -106,14 +108,16 @@ def init_db():
         f"{ADMIN_USER}@empresa.com",
         role='ADMIN',
         active=True,
-        password_hash=hash_password(ADMIN_PASSWORD)
+        password_hash=hash_password(ADMIN_PASSWORD),
+        empleado_id='admin'
     )
     crear_o_actualizar_usuario(
         DEFAULT_USER,
         f"{DEFAULT_USER}@empresa.com",
         role='USER',
         active=True,
-        password_hash=hash_password(DEFAULT_PASSWORD)
+        password_hash=hash_password(DEFAULT_PASSWORD),
+        empleado_id='user'
     )
 
 
@@ -181,7 +185,7 @@ def obtener_usuario_por_username(username):
     """Return a single user record from auth_users matching the username."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, email, password_hash, role, active FROM auth_users WHERE username=%s", (username,))
+    cur.execute("SELECT id, username, email, password_hash, role, active, empleado_id FROM auth_users WHERE username=%s", (username,))
     row = cur.fetchone()
     cur.close()
     conn.close()
@@ -192,17 +196,17 @@ def obtener_usuario_por_email(email):
     """Return a single user record from auth_users matching the email."""
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT id, username, email, password_hash, role, active FROM auth_users WHERE email=%s", (email,))
+    cur.execute("SELECT id, username, email, password_hash, role, active, empleado_id FROM auth_users WHERE email=%s", (email,))
     row = cur.fetchone()
     cur.close()
     conn.close()
     return row
 
 
-def crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None):
+def crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None, empleado_id=None):
     """Insert or update a user record in auth_users.
 
-    Keeps username/email uniqueness and updates role, active state, and password hash.
+    Keeps username/email uniqueness and updates role, active state, password hash and empleado_id.
     """
     conn = get_db()
     cur = conn.cursor()
@@ -210,13 +214,13 @@ def crear_o_actualizar_usuario(username, email, role='USER', active=False, passw
     existing = cur.fetchone()
     if existing:
         cur.execute(
-            "UPDATE auth_users SET role=%s, active=%s, password_hash=%s, updated_at=NOW() WHERE email=%s",
-            (role, active, password_hash, email)
+            "UPDATE auth_users SET role=%s, active=%s, password_hash=%s, empleado_id=%s, updated_at=NOW() WHERE email=%s",
+            (role, active, password_hash, empleado_id, email)
         )
     else:
         cur.execute(
-            "INSERT INTO auth_users (username, email, role, active, password_hash) VALUES (%s, %s, %s, %s, %s)",
-            (username, email, role, active, password_hash)
+            "INSERT INTO auth_users (username, email, role, active, password_hash, empleado_id) VALUES (%s, %s, %s, %s, %s, %s)",
+            (username, email, role, active, password_hash, empleado_id)
         )
     conn.commit()
     cur.close()
@@ -242,7 +246,8 @@ def procesar_evento_empleado_creado(event_data):
     if not email:
         return
     username = email.lower()
-    crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None)
+    empleado_id = event_data.get('id')
+    crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None, empleado_id=empleado_id)
     reset_token = crear_token(
         {"sub": username, "type": "RESET_PASSWORD"},
         datetime.timedelta(minutes=RESET_EXPIRE_MINUTES)
@@ -250,7 +255,9 @@ def procesar_evento_empleado_creado(event_data):
     publicar_evento('usuario_events', 'usuario.creado', {
         "email": email,
         "token": reset_token,
-        "tipo": "usuario.creado"
+        "tipo": "usuario.creado",
+        "id": empleado_id,
+        "empleadoId": empleado_id
     })
 
 
@@ -373,7 +380,7 @@ def login():
     if not user:
         return respuesta_error("Credenciales inválidas", 401)
 
-    _, username, email, password_hash, role, active = user
+    _, username, email, password_hash, role, active, _ = user
     if not active or not password_hash or not check_password(password, password_hash):
         return respuesta_error("Credenciales inválidas", 401)
 
@@ -426,6 +433,7 @@ def recover_password():
     user = obtener_usuario_por_email(email)
     if user:
         username = user[1]
+        empleado_id = user[6]
         reset_token = crear_token(
             {"sub": username, "type": "RESET_PASSWORD"},
             datetime.timedelta(minutes=RESET_EXPIRE_MINUTES)
@@ -433,7 +441,9 @@ def recover_password():
         publicar_evento('usuario_events', 'usuario.recuperacion', {
             "email": email,
             "token": reset_token,
-            "tipo": "usuario.recuperacion"
+            "tipo": "usuario.recuperacion",
+            "id": empleado_id,
+            "empleadoId": empleado_id
         })
 
     return respuesta_exitosa("Si el correo existe, se ha enviado un enlace de recuperación.")

@@ -99,12 +99,16 @@ async function startRabbitMQ() {
                 if (tipo) {
                     console.log(`[NOTIFICACIÓN] Tipo: ${tipo} | Para: ${eventData.email} | Mensaje: ${msj}`);
 
-                    await Notification.create({
-                        tipo: tipo,
-                        destinatario: eventData.email,
-                        mensaje: msj,
-                        empleadoId: eventData.id || null
-                    });
+                    try {
+                        await Notification.create({
+                            tipo: tipo,
+                            destinatario: eventData.email,
+                            mensaje: msj,
+                            empleadoId: eventData.id || eventData.empleadoId || null
+                        });
+                    } catch (err) {
+                        console.error("Error creando notificación:", err);
+                    }
                 }
                 channel.ack(msg);
             }
@@ -119,7 +123,7 @@ async function startRabbitMQ() {
 const PORT = process.env.PORT || 8084;
 
 // Sincronizar DB y encender servidor
-sequelize.sync().then(() => {
+sequelize.sync({ alter: true }).then(() => {
     console.log("PostgreSQL Conectado");
     app.listen(PORT, () => {
         console.log(`Servicio de Notificaciones en puerto ${PORT}`);
