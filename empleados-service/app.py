@@ -158,17 +158,21 @@ def requerir_rol(*roles):
 # VALIDACIÓN DE DEPARTAMENTO (Resiliente)
 # ======================================================
 
-def _llamar_servicio_departamentos(departamento_id):
+DEPARTAMENTOS_SERVICE_URL = os.getenv("DEPARTAMENTOS_SERVICE_URL", "http://departamentos-service:8081")
+
+def _llamar_servicio_departamentos(departamento_id, auth_header):
     return requests.get(
-        f"http://departamentos-service:8081/departamentos/{departamento_id}",
+        f"{DEPARTAMENTOS_SERVICE_URL}/departamentos/{departamento_id}",
+        headers={"Authorization": auth_header} if auth_header else {},
         timeout=3
     )
 
 def validar_departamento(departamento_id, retries=3):
+    auth_header = request.headers.get("Authorization")
 
     @breaker
     def llamada_con_breaker():
-        return _llamar_servicio_departamentos(departamento_id)
+        return _llamar_servicio_departamentos(departamento_id, auth_header)
 
     for intento in range(retries):
         try:
@@ -179,6 +183,8 @@ def validar_departamento(departamento_id, retries=3):
                 return True
             if response.status_code == 404:
                 return False
+            if response.status_code == 401:
+                return "unauthorized"
 
             return False
 
@@ -233,6 +239,10 @@ def registrar_empleado():
               type: string
               format: date
               example: "2024-01-01"
+            password:
+              type: string
+              description: "Contraseña inicial opcional para el usuario asociado"
+              example: "Pass1234"
     responses:
       201:
         description: Empleado registrado correctamente
@@ -254,6 +264,9 @@ def registrar_empleado():
         return respuesta_error("Datos incompletos")
 
     validacion = validar_departamento(data['departamentoId'])
+
+    if validacion == "unauthorized":
+        return respuesta_error("Token inválido o faltante para el servicio de departamentos", 401)
 
     if validacion is False:
         return respuesta_error("El departamento no existe", 400)
@@ -286,14 +299,18 @@ def registrar_empleado():
         conn.commit()
 
         # Publicar evento de empleado creado
-        publicar_evento('empleado.creado', {
+        event_data = {
             'id': emp_id,
             'cedula': data['cedula'],
             'nombre': data['nombre'],
             'email': data['email'],
             'departamentoId': data['departamentoId'],
             'fechaIngreso': data['fechaIngreso']
-        })
+        }
+        if 'password' in data and data['password']:
+            event_data['password'] = data['password']
+
+        publicar_evento('empleado.creado', event_data)
 
         return respuesta_exitosa("Empleado registrado", {
             "id": emp_id,

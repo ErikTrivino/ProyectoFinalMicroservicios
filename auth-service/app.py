@@ -8,6 +8,8 @@ import jwt
 import bcrypt
 import pika
 import psycopg2
+import secrets
+import string
 from dotenv import load_dotenv
 from flasgger import Swagger
 
@@ -29,6 +31,11 @@ app = Flask(__name__)
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
+
+
+
+
+
 # Tiempo de expiración en minutos para los tokens de acceso
 ACCESS_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRES_MINUTES", 60))
 # Tiempo de expiración en minutos para los tokens de recuperación de contraseña
@@ -227,6 +234,12 @@ def crear_o_actualizar_usuario(username, email, role='USER', active=False, passw
     conn.close()
 
 
+def generar_password_temporal(length=12):
+    """Generate a secure temporary password for new auto-created users."""
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+
 def deshabilitar_usuario_por_email(email):
     """Deactivate a user account by email in the auth_users table."""
     conn = get_db()
@@ -247,18 +260,33 @@ def procesar_evento_empleado_creado(event_data):
         return
     username = email.lower()
     empleado_id = event_data.get('id')
-    crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=None, empleado_id=empleado_id)
-    reset_token = crear_token(
-        {"sub": username, "type": "RESET_PASSWORD"},
-        datetime.timedelta(minutes=RESET_EXPIRE_MINUTES)
-    )
-    publicar_evento('usuario_events', 'usuario.creado', {
-        "email": email,
-        "token": reset_token,
-        "tipo": "usuario.creado",
-        "id": empleado_id,
-        "empleadoId": empleado_id
-    })
+    provided_password = event_data.get('password')
+    if provided_password:
+        password_hash = hash_password(provided_password)
+        crear_o_actualizar_usuario(username, email, role='USER', active=True, password_hash=password_hash, empleado_id=empleado_id)
+        publicar_evento('usuario_events', 'usuario.creado', {
+            "email": email,
+            "tipo": "usuario.creado",
+            "id": empleado_id,
+            "empleadoId": empleado_id,
+            "hasInitialPassword": True
+        })
+    else:
+        temporary_password = generar_password_temporal()
+        password_hash = hash_password(temporary_password)
+        crear_o_actualizar_usuario(username, email, role='USER', active=False, password_hash=password_hash, empleado_id=empleado_id)
+        reset_token = crear_token(
+            {"sub": username, "type": "RESET_PASSWORD"},
+            datetime.timedelta(minutes=RESET_EXPIRE_MINUTES)
+        )
+        publicar_evento('usuario_events', 'usuario.creado', {
+            "email": email,
+            "token": reset_token,
+            "tipo": "usuario.creado",
+            "id": empleado_id,
+            "empleadoId": empleado_id,
+            "needsPasswordReset": True
+        })
 
 
 def procesar_evento_empleado_eliminado(event_data):
