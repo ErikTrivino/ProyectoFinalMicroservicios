@@ -175,43 +175,93 @@ services:
     networks:
       - checkin-net
 
+  
   # ==================================================
-  # SERVICIO NOTIFICACIONES (Node.js) - [cite: 21, 68]
+  # BASE DE DATOS - NOTIFICACIONES (Reto 3)
   # ==================================================
-  # Base de datos propia para Notificaciones [cite: 153]
   database-notificaciones:
     image: postgres:16
     container_name: database-notificaciones
     environment:
       POSTGRES_DB: notificaciones_db
-      POSTGRES_USER: notif_user
-      POSTGRES_PASSWORD: notif_pass
+      POSTGRES_USER: notificaciones_user
+      POSTGRES_PASSWORD: notificaciones_pass
+    volumes:
+      - notificaciones-db-data:/var/lib/postgresql/data
     networks:
       - checkin-net
+    ports:
+      - "5440:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U notif_user -d notificaciones_db"]
+      test: ["CMD-SHELL", "pg_isready -U notificaciones_user -d notificaciones_db"]
       interval: 5s
       timeout: 5s
       retries: 5
 
-  # El servicio Node.js
+  # ==================================================
+  # SERVICIO - NOTIFICACIONES (Reto 3 / .NET)
+  # ==================================================
   notificaciones-service:
     build: ./notificaciones-service
     container_name: notificaciones-service
     environment:
-      DB_HOST: database-notificaciones
-      DB_NAME: notificaciones_db
-      DB_USER: notif_user
-      DB_PASSWORD: notif_pass
-      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
-      JWT_SECRET: supersecreto
-      PORT: 8084
+      ConnectionStrings__DefaultConnection: "Host=database-notificaciones;Port=5432;Database=notificaciones_db;Username=notificaciones_user;Password=notificaciones_pass"
+      RabbitMQ__Host: message-broker
+      RabbitMQ__Port: 5672
+      RabbitMQ__User: admin
+      RabbitMQ__Password: admin
     depends_on:
       database-notificaciones:
         condition: service_healthy
       message-broker:
-        condition: service_started
+        condition: service_healthy
     networks:
       - checkin-net
     ports:
       - "8084:8084"
+
+ # ==================================================
+  # BASE DE DATOS - PERFILES (Reto 3)
+  # ==================================================
+  database-perfiles:
+    image: postgres:16
+    container_name: database-perfiles
+    environment:
+      POSTGRES_DB: perfiles_db
+      POSTGRES_USER: perfiles_user
+      POSTGRES_PASSWORD: perfiles_pass
+    volumes:
+      - perfiles-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
+  # ==================================================
+  perfiles-service:
+    build: ./java
+    container_name: perfiles-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
+      SPRING_DATASOURCE_USERNAME: perfiles_user
+      SPRING_DATASOURCE_PASSWORD: perfiles_pass
+      SPRING_RABBITMQ_HOST: message-broker
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin
+    depends_on:
+      database-perfiles:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8083:8083"
