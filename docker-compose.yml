@@ -127,7 +127,7 @@ services:
     networks:
       - checkin-net
     ports:
-      - "8081:8081"
+      - "8086:8081"
 
   # ==================================================
   # SERVICIO - AUTH / JWT
@@ -264,6 +264,7 @@ services:
       SPRING_RABBITMQ_USERNAME: admin
       SPRING_RABBITMQ_PASSWORD: admin
       JWT_SECRET: supersecreto
+      JWT_ALGORITHM: HS256
     depends_on:
       database-perfiles:
         condition: service_healthy
