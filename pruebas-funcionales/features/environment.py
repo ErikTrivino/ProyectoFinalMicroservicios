@@ -9,6 +9,7 @@ def before_all(context):
     context.base_url_empleados = os.getenv('EMPLEADOS_URL')
     context.base_url_notificaciones = os.getenv('NOTIFICACIONES_URL')
     context.base_url_departamentos = os.getenv('DEPARTAMENTOS_URL')
+    context.base_url_perfiles = os.getenv('PERFILES_URL')
     
     context.admin_user = os.getenv('ADMIN_USER')
     context.admin_pass = os.getenv('ADMIN_PASS')

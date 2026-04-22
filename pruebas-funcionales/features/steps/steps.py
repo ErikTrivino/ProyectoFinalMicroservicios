@@ -175,3 +175,45 @@ def step_verify_in_list(context):
     res = requests.get(f"{context.base_url_empleados}/empleados", headers=headers)
     found = any(e['email'] == context.new_user_email for e in res.json()['data'])
     assert found, f"Empleado {context.new_user_email} no encontrado en la lista"
+
+# --- Pasos para Perfiles ---
+
+@when('intento consultar la lista de perfiles')
+def step_get_perfiles(context):
+    headers = {"Authorization": f"Bearer {context.token}"}
+    context.last_response = requests.get(f"{context.base_url_perfiles}/perfiles", headers=headers)
+
+@when('intento consultar el perfil del empleado recién creado')
+def step_get_perfil_by_id(context):
+    headers = {"Authorization": f"Bearer {context.token}"}
+    url = f"{context.base_url_perfiles}/perfiles/{context.new_user_id}"
+    context.last_response = requests.get(url, headers=headers)
+
+@when('actualizo el perfil del empleado con biografía "{biografia}" y experiencia "{experiencia}"')
+def step_update_perfil(context, biografia, experiencia):
+    headers = {"Authorization": f"Bearer {context.token}", "Content-Type": "application/json"}
+    payload = {
+        "biografia": biografia,
+        "experiencia": experiencia,
+        "especialidades": ["Testing", "Automation"],
+        "redesSociales": {"github": "testuser"}
+    }
+    url = f"{context.base_url_perfiles}/perfiles/{context.new_user_id}"
+    context.last_response = requests.put(url, json=payload, headers=headers)
+
+@then('la respuesta contiene una lista de perfiles')
+def step_check_perfiles_list(context):
+    data = context.last_response.json()
+    assert data['success'] is True
+    assert isinstance(data['data'], list)
+
+@then('los detalles del perfil corresponden al empleado creado')
+def step_verify_perfil_details(context):
+    data = context.last_response.json()['data']
+    assert data['empleadoId'] == context.new_user_id
+
+@then('el perfil actualizado muestra la nueva biografía y experiencia')
+def step_verify_updated_perfil(context):
+    data = context.last_response.json()['data']
+    assert data['biografia'] == "Experta en microservicios"
+    assert data['experiencia'] == "5 años"
