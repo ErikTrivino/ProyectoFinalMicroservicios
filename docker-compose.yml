@@ -12,6 +12,8 @@ volumes:
   empleados-db-data:
   departamentos-db-data:
   auth-db-data:
+  notificaciones-db-data:
+  perfiles-db-data:
 
 services:
   # ==================================================
@@ -172,6 +174,11 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: admin
       RABBITMQ_DEFAULT_PASS: admin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
     networks:
       - checkin-net
 
@@ -246,7 +253,7 @@ services:
   # SERVICIO - PERFILES (Reto 3 / Spring Boot)
   # ==================================================
   perfiles-service:
-    build: ./java
+    build: ./perfiles-service
     container_name: perfiles-service
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
@@ -256,6 +263,7 @@ services:
       SPRING_RABBITMQ_PORT: 5672
       SPRING_RABBITMQ_USERNAME: admin
       SPRING_RABBITMQ_PASSWORD: admin
+      JWT_SECRET: supersecreto
     depends_on:
       database-perfiles:
         condition: service_healthy
