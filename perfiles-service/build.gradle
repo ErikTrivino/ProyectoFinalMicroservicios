@@ -1,7 +1,7 @@
 plugins {
-	id 'java'
-	id 'org.springframework.boot' version '3.4.1'
-	id 'io.spring.dependency-management' version '1.1.7'
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
 }
 
 group = 'com.example'
@@ -9,69 +9,60 @@ version = '0.0.1-SNAPSHOT'
 description = 'Demo project for Spring Boot'
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
 }
 
 repositories {
-	mavenCentral()
+    mavenCentral()
 }
 
 dependencies {
-	implementation 'org.springframework.boot:spring-boot-starter'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    implementation 'org.springframework.boot:spring-boot-starter'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 
-	// Spring Boot Web (REST endpoints)
-	implementation 'org.springframework.boot:spring-boot-starter-web'
+    // Spring Boot Web (REST endpoints)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
 
-	// Spring Boot Data JPA (base de datos)
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    // Spring Boot Data JPA (base de datos)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 
-	// Spring Boot AMQP (RabbitMQ)
-	implementation 'org.springframework.boot:spring-boot-starter-amqp'
+    // Spring Boot AMQP (RabbitMQ)
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
 
-	// PostgreSQL Driver
-	runtimeOnly 'org.postgresql:postgresql'
+    // PostgreSQL Driver
+    runtimeOnly 'org.postgresql:postgresql'
 
-	// Swagger / OpenAPI
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+    // H2 (solo para tests o desarrollo local)
+    runtimeOnly 'com.h2database:h2'
 
-	// JWT
-	implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
-	implementation 'io.jsonwebtoken:jjwt-impl:0.12.3'
-	implementation 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+    // Swagger / OpenAPI
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
 
-	// Jackson para JSON (ya viene incluido en spring-boot-starter-web)
-	implementation 'com.fasterxml.jackson.core:jackson-databind'
+    // JWT (una sola versión)
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
 
-	implementation 'org.springframework.boot:spring-boot-h2console'
-	implementation 'org.springframework.boot:spring-boot-starter-webmvc'
-	runtimeOnly 'com.h2database:h2'
-	testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test'
-	testImplementation 'org.springframework.boot:spring-boot-starter-webmvc-test'
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    testCompileOnly 'org.projectlombok:lombok:1.18.30'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
 
-	compileOnly 'org.projectlombok:lombok:1.18.30'
-	annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    // MapStruct
+    implementation 'org.mapstruct:mapstruct:1.6.3'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
 
-	testCompileOnly 'org.projectlombok:lombok:1.18.30'
-	testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
+    // Spring Security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
 
-	implementation("org.mapstruct:mapstruct:1.6.3")                           // Mapeo objeto-objeto
-	annotationProcessor("org.mapstruct:mapstruct-processor:1.6.3")            // Procesador MapStruct
-
-	// Spring Boot Security
-	implementation 'org.springframework.boot:spring-boot-starter-security'
-
-	// JJWT for JWT token handling
-	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
-	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
-	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
-
-	implementation("org.springframework.boot:spring-boot-starter-validation")  // Validación de datos
+    // Validación
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+    useJUnitPlatform()
 }
