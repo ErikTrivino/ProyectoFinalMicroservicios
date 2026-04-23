@@ -26,6 +26,7 @@ public class PerfilController {
     }
 
     @GetMapping
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER')")
     @Operation(summary = "Listar todos los perfiles")
     public ResponseEntity<Map<String, Object>> listarPerfiles() {
         List<Perfil> perfiles = perfilService.listarTodos();
@@ -39,6 +40,7 @@ public class PerfilController {
     }
 
     @GetMapping("/{empleadoId}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER')")
     @Operation(summary = "Consultar perfil por ID de empleado")
     public ResponseEntity<Map<String, Object>> obtenerPerfil(
             @PathVariable String empleadoId) {
@@ -61,6 +63,7 @@ public class PerfilController {
     }
 
     @PutMapping("/{empleadoId}")
+    @PreAuthorize("hasRole('ADMIN')")
     @Operation(summary = "Actualizar perfil de un empleado")
     public ResponseEntity<Map<String, Object>> actualizarPerfil(
             @PathVariable String empleadoId,
