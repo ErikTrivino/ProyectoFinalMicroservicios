@@ -24,7 +24,9 @@ def poll_notifications(context, email, timeout=15):
     while time.time() - start_time < timeout:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
-            notifications = response.json()
+            json_response = response.json()
+            # Extraer las notificaciones del campo 'data' envuelto por el ApiResponse
+            notifications = json_response.get('data', [])
             # Buscar la notificación de SEGURIDAD para el email dado
             for notif in notifications:
                 if notif['destinatario'] == email and notif['tipo'] == 'SEGURIDAD':
