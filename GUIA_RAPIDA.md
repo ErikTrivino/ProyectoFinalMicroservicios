@@ -155,6 +155,34 @@ curl -X DELETE http://localhost:8080/empleados/E001 \
 
 ---
 
+## 📊 Endpoints - Perfiles Service (8083) - Requieren JWT
+
+### GET `/perfiles`
+Listar todos los perfiles (ADMIN y USER pueden)
+```bash
+TOKEN="eyJhbGc..."
+curl http://localhost:8083/perfiles \
+  -H "Authorization: Bearer $TOKEN"
+
+# Sin token: 401/403 Forbidden
+```
+
+### PUT `/perfiles/{id}`
+Actualizar un perfil (Solo ADMIN)
+```bash
+TOKEN="eyJhbGc... (ADMIN token)"
+curl -X PUT http://localhost:8083/perfiles/E001 \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "habilidades": ["Java", "Spring Boot", "Docker"]
+  }'
+
+# Con USER token: 403 Forbidden
+```
+
+---
+
 ## 🛡️ Códigos de Error
 
 | Código | Significado | Causa |
@@ -261,6 +289,8 @@ docker-compose up -d --build
 | Auth Docs | http://localhost:8082/apidocs/ | 8082 |
 | Empleados | http://localhost:8080 | 8080 |
 | Departamentos | http://localhost:8081 | 8081 |
+| Perfiles | http://localhost:8083 | 8083 |
+| Perfiles Docs | http://localhost:8083/swagger-ui/index.html | 8083 |
 | Notificaciones | http://localhost:8084 | 8084 |
 | RabbitMQ UI | http://localhost:15672 | 15672 |
 | → user: admin, pass: admin |  |  |
@@ -271,7 +301,7 @@ docker-compose up -d --build
 
 ```bash
 # docker-compose.yml
-JWT_SECRET=supersecreto              # ← CAMBIAR EN PRODUCCIÓN
+JWT_SECRET=supersecretosupersecretosupersecreto # ← Mínimo 32 bytes (req. Java io.jsonwebtoken)
 JWT_ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRES_MINUTES=60      # 60 minutos
 RESET_TOKEN_EXPIRES_MINUTES=60       # 60 minutos
