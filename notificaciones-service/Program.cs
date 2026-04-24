@@ -13,7 +13,7 @@ var builder = WebApplication.CreateBuilder(args);
 // =========================
 
 // JWT Authentication
-var jwtSecret = Environment.GetEnvironmentVariable("JWT_SECRET") ?? "supersecreto";
+var jwtSecret = builder.Configuration["JWT_SECRET"] ?? "supersecretosupersecretosupersecreto";
 var key = Encoding.UTF8.GetBytes(jwtSecret);
 
 builder.Services.AddAuthentication(options =>
@@ -122,6 +122,7 @@ app.UseSwaggerUI(c =>
     c.SwaggerEndpoint("/swagger/v1/swagger.json", "API Notificaciones v1");
     c.RoutePrefix = "swagger";
 });
+
 app.UseAuthentication();
 app.UseAuthorization();
 

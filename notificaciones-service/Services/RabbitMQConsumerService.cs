@@ -211,7 +211,7 @@ public class RabbitMQConsumerService : BackgroundService
         string mensaje = evento.Tipo switch
         {
             "usuario.creado" => evento.NeedsPasswordReset == true 
-                ? $"Su usuario ha sido creado. Use este token para activar su cuenta: {evento.Token}" 
+                ? $"Su usuario ha sido creado. Para activar su cuenta, utilice el token: {evento.Token}" 
                 : "Su usuario ha sido creado exitosamente.",
             "usuario.recuperacion" => $"Solicitud de recuperación de contraseña. Use este token: {evento.Token}",
             _ => "Notificación de seguridad recibida."

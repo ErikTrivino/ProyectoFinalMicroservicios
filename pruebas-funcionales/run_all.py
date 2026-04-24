@@ -23,17 +23,17 @@ def main():
         if run_suite(i) == 0:
             success_count += 1
         else:
-            print(f"\n❌ Error en la ejecución #{i}")
+            print(f"\n[ERROR] Error en la ejecución #{i}")
     
     print(f"\n{'='*40}")
     print(f" RESUMEN DE CONSISTENCIA: {success_count}/{total_runs} éxitos")
     print(f"{'='*40}")
     
     if success_count == total_runs:
-        print("\n✅ Suite estable y consistente.")
+        print("\n[OK] Suite estable y consistente.")
         sys.exit(0)
     else:
-        print("\n⚠️ Se detectaron fallos intermitentes o errores permanentes.")
+        print("\n[!] Se detectaron fallos intermitentes o errores permanentes.")
         sys.exit(1)
 
 if __name__ == "__main__":
