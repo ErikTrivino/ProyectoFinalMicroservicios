@@ -1,284 +1,427 @@
-# ProyectoFinalMicroservicios
+# Microservicios de Gestión de Empleados con Autenticación JWT
 
-Sistema de gestión de empleados basado en arquitectura de microservicios con comunicación asincrónica.
+> Arquitectura de microservicios que implementa autenticación centralizada con JWT, autorización basada en roles (RBAC) y eventos de ciclo de vida para empleados.
 
-## Integrantes
-- Erik Pablo Triviño Gonzalez
-- Felip Valencia Londoño
-- Anderson Betancurt
-- Jose Felipe Gabinos
+**Equipo:** Erik Pablo Triviño Gonzalez | Felipe Valencia Londoño | Anderson Betancurt | Jose Felipe Gabinos
 
 ---
 
-## Arquitectura del Sistema
+## 📋 Tabla de Contenidos
+
+1. [Arquitectura](#arquitectura)
+2. [Flujo de Autenticación](#flujo-de-autenticación)
+3. [Seguridad JWT](#seguridad-jwt)
+4. [Roles y Permisos](#roles-y-permisos)
+5. [Instalación](#instalación)
+6. [Uso de la API](#uso-de-la-api)
+7. [Ejemplos de Requests](#ejemplos-de-requests)
+8. [Pruebas Completas](#pruebas-completas)
+9. [Solución de Problemas](#solución-de-problemas)
+
+---
+
+## Arquitectura
+
+### Componentes
+
+| Servicio | Puerto | Descripción |
+|----------|--------|-------------|
+| **auth-service** | 8082 | Proveedor central de identidad. Emite JWT y valida credenciales |
+| **empleados-service** | 8080 | CRUD de empleados. Requiere JWT en Authorization header |
+| **departamentos-service** | 8081 | CRUD de departamentos. Requiere JWT |
+| **notificaciones-service** | 3000 | Consumer de eventos. Registra notificaciones de ciclo de vida |
+| **RabbitMQ** | 5672 | Message broker para eventos asíncronos |
+| **PostgreSQL (x4)** | N/A | Bases de datos independientes por servicio |
+
+### Flujo de Eventos
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           Docker Network (checkin-net)                       │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌──────────────────┐     ┌──────────────────┐     ┌──────────────────┐    │
-│  │ empleados-service│     │departamentos-svc │     │ perfiles-service │    │
-│  │     :8080        │────▶│     :8081        │     │     :8083        │    │
-│  │    (Python)      │REST │    (Python)      │     │  (Spring Boot)   │    │
-│  └────────┬─────────┘     └──────────────────┘     └────────▲─────────┘    │
-│           │                                                 │              │
-│           │ Publica eventos                    Consume eventos             │
-│           ▼                                                 │              │
-│  ┌────────────────────────────────────────────────────────┐│              │
-│  │              RabbitMQ (message-broker)                  ││              │
-│  │  Exchanges: empleado.creado, empleado.eliminado        │├──────────┐   │
-│  │                    :5672 / :15672                       ││          │   │
-│  └────────────────────────────────────────────────────────┘│          │   │
-│                                                 │          │          │   │
-│                                    Consume eventos         │          │   │
-│                                                 ▼          │          │   │
-│                                    ┌──────────────────┐    │          │   │
-│                                    │notificaciones-svc│◀───┘          │   │
-│                                    │     :8084        │               │   │
-│                                    │     (.NET)       │               │   │
-│                                    └──────────────────┘               │   │
-│                                                                       │   │
-│  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐ ┌─────────────┐     │   │
-│  │db-empleados │ │db-departam. │ │ db-perfiles │ │db-notificac.│     │   │
-│  │   :5437     │ │   :5438     │ │   :5439     │ │   :5440     │     │   │
-│  └─────────────┘ └─────────────┘ └─────────────┘ └─────────────┘     │   │
-│                                                                       │   │
-└───────────────────────────────────────────────────────────────────────┘   │
-
+[POST /empleados] 
+    ↓ (ADMIN crea empleado)
+[empleados_events exchange - empleado.creado]
+    ↓ (evento publicado)
+[auth-service consume]
+    ↓ (crea user con email del empleado)
+[usuario_events exchange - usuario.creado]
+    ↓ (con reset_token en evento)
+[notificaciones-service consume]
+    ↓ (registra notificación con token)
 ```
 
 ---
 
-## Elección del Message Broker
+## Flujo de Autenticación
 
-### Investigación de alternativas
+### 1️⃣ Login
 
-| Broker | Características | Pros | Contras |
-|--------|-----------------|------|---------|
-| **RabbitMQ** | Protocolo AMQP, exchanges/colas, UI de gestión | Fácil configuración, buena documentación, UI administrativa | Menor throughput que Kafka |
-| **Apache Kafka** | Alto throughput, persistencia, streaming | Excelente para grandes volúmenes | Más complejo de configurar |
-| **Redis Streams** | Ligero, bajo overhead | Mínimo consumo de recursos | Menos features de mensajería |
-| **NATS** | Ultra-ligero, cloud-native | Alta performance | Menos maduro en ecosistema |
+```http
+POST /auth/login HTTP/1.1
+Host: localhost:8082
+Content-Type: application/json
 
-### Justificación de RabbitMQ
-
-Elegimos **RabbitMQ** por las siguientes razones:
-
-1. **Patrón Fan-out nativo**: Los exchanges tipo `fanout` permiten que un evento sea consumido por múltiples servicios de forma sencilla (perfiles y notificaciones reciben el mismo evento).
-
-2. **Interfaz de administración**: La UI en puerto `15672` facilita el debugging y monitoreo de colas/mensajes.
-
-3. **Amplia documentación**: Existen librerías maduras para Python (`pika`), Java (`spring-amqp`) y .NET (`RabbitMQ.Client`).
-
-4. **Simplicidad**: Para el volumen de mensajes de este sistema, RabbitMQ ofrece un balance ideal entre funcionalidad y complejidad.
-
-5. **Persistencia configurable**: Los mensajes se pueden marcar como `durable` para sobrevivir reinicios del broker.
-
----
-
-## Documentación de Eventos
-
-### Evento: `empleado.creado`
-
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| Exchange | `empleado.creado` | Exchange tipo fanout |
-| Productor | `empleados-service` | Se publica al crear un empleado exitosamente |
-| Consumidores | `perfiles-service`, `notificaciones-service` | Ambos servicios escuchan este evento |
-
-**Payload:**
-```json
 {
-  "id": "uuid-del-empleado",
-  "nombre": "Juan Pérez",
-  "email": "juan@empresa.com",
-  "departamentoId": "IT",
-  "fechaIngreso": "2024-01-15"
+  "username": "juan_perez",
+  "password": "miPassword123"
 }
 ```
 
-**Acciones desencadenadas:**
-- `perfiles-service`: Crea un perfil por defecto para el empleado
-- `notificaciones-service`: Registra y simula envío de email de bienvenida
-
----
-
-### Evento: `empleado.eliminado`
-
-| Campo | Tipo | Descripción |
-|-------|------|-------------|
-| Exchange | `empleado.eliminado` | Exchange tipo fanout |
-| Productor | `empleados-service` | Se publica al eliminar un empleado |
-| Consumidores | `notificaciones-service` | Escucha para notificar desvinculación |
-
-**Payload:**
+**Respuesta 200:**
 ```json
 {
-  "id": "uuid-del-empleado",
-  "nombre": "Juan Pérez",
+  "success": true,
+  "message": "Autenticación correcta",
+  "data": {
+    "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "token_type": "bearer",
+    "expires_in": 900,
+    "role": "USER"
+  }
+}
+```
+
+### 3️⃣ Usar Token
+
+En el header de **CUALQUIER request protegido:**
+
+```http
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+### 4️⃣ Recuperar Contraseña
+
+```http
+POST /auth/recover-password HTTP/1.1
+Host: localhost:8082
+Content-Type: application/json
+
+{
   "email": "juan@empresa.com"
 }
 ```
 
-**Acciones desencadenadas:**
-- `notificaciones-service`: Registra y simula notificación de desvinculación
+Luego recibir el reset_token en notificaciones y usar:
+
+```http
+POST /auth/reset-password HTTP/1.1
+Host: localhost:8082
+Content-Type: application/json
+
+{
+  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+  "newPassword": "nuevaPassword456"
+}
+```
 
 ---
 
-## Servicios
+## Seguridad JWT
 
-| Servicio | Puerto | Tecnología | Descripción |
-|----------|--------|------------|-------------|
-| empleados-service | 8080 | Python/Flask | CRUD de empleados, publica eventos |
-| departamentos-service | 8081 | Python/Flask | CRUD de departamentos |
-| perfiles-service | 8083 | Java/Spring Boot | Gestión de perfiles, consume eventos |
-| notificaciones-service | 8084 | C#/.NET | Registro de notificaciones, consume eventos |
-| message-broker | 5672/15672 | RabbitMQ | Broker de mensajes |
+### Características
+
+| Aspecto | Implementación |
+|--------|-----------------|
+| **Algoritmo** | HS256 (Simétrico) |
+| **Expiración** | 60 minutos (ACCESS), 60 minutos (RESET) |
+| **Hash** | bcrypt con salt |
+| **Almacenamiento** | Variable de entorno `JWT_SECRET` |
+
+### Estructura del Token
+
+```
+Header:
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+
+Payload:
+{
+  "sub": "usuario",
+  "role": "ADMIN",
+  "type": "ACCESS",
+  "iat": 1704067200,
+  "exp": 1704068100
+}
+
+Signature: HMACSHA256(header.payload, JWT_SECRET)
+```
+
+### Validación en Servicios
+
+1. ✅ Cliente envía: `Authorization: Bearer <token>`
+2. ✅ Servicio verifica firma con `JWT_SECRET` compartido
+3. ✅ Si expirado o alterado: **401 Unauthorized**
+4. ✅ Si sin permisos para la acción: **403 Forbidden**
 
 ---
 
-## Instrucciones de Despliegue
+## Roles y Permisos (RBAC)
 
-### Prerequisitos
-- Docker Desktop instalado
-- Docker Compose v2+
-- Puertos disponibles: 8080-8084, 5672, 15672, 5437-5440
+### ADMIN ✅ Acceso Total
 
-### Despliegue completo
+| Recurso | GET | POST | DELETE |
+|---------|-----|------|--------|
+| `/empleados` | ✅ | ✅ | ✅ |
+| `/departamentos` | ✅ | ✅ | ✅ |
+
+### USER 🔍 Solo Lectura
+
+| Recurso | GET | POST | DELETE |
+|---------|-----|------|--------|
+| `/empleados` | ✅ | ❌ 403 | ❌ 403 |
+| `/departamentos` | ✅ | ❌ 403 | ❌ 403 |
+
+---
+
+## Instalación
+
+### Prerrequisitos
+- Docker y Docker Compose
+- Git
+
+### Pasos
 
 ```bash
-# Clonar el repositorio
-git clone <url-del-repo>
+# 1. Clonar
+git clone <repo>
 cd ProyectoFinalMicroservicios
 
-# Iniciar todos los servicios
-docker-compose up --build
+# 2. Levantar servicios
+docker-compose up -d
 
-# O en segundo plano
-docker-compose up --build -d
-```
-
-### Verificar servicios
-
-```bash
-# Ver estado de contenedores
+# 3. Verificar
 docker-compose ps
 
-# Ver logs de un servicio específico
-docker-compose logs -f notificaciones-service
+# 4. Ver logs
+docker-compose logs -f auth-service
 ```
 
-### Detener servicios
+### Variables de Entorno (docker-compose.yml)
 
-```bash
-docker-compose down
-
-# Para eliminar también los volúmenes (datos)
-docker-compose down -v
+```yaml
+environment:
+  JWT_SECRET: "supersecreto"
+  JWT_ALGORITHM: "HS256"
+  ACCESS_TOKEN_EXPIRES_MINUTES: 60
+  RESET_TOKEN_EXPIRES_MINUTES: 60
+  RABBITMQ_URL: "amqp://admin:admin@message-broker:5672"
 ```
+
+⚠️ **En producción:** Cambiar `JWT_SECRET` a un valor seguro y único.
 
 ---
 
-## Endpoints Disponibles
+## Uso de la API
 
-### Swagger UI
-- Empleados: http://localhost:8080/apidocs
-- Departamentos: http://localhost:8081/apidocs
-- Perfiles: http://localhost:8083/swagger-ui.html
-- Notificaciones: http://localhost:8084/swagger
+### 🎯 Swagger UI
 
-### RabbitMQ Management
-- URL: http://localhost:15672
-- Usuario: `admin`
-- Password: `admin`
-
----
-
-## Instrucciones de Prueba
-
-### 1. Iniciar servicios
-```bash
-docker-compose up --build
+```
+http://localhost:8082/apidocs/
 ```
 
-### 2. Verificar RabbitMQ
-Acceder a http://localhost:15672 (admin/admin) y verificar que los exchanges `empleado.creado` y `empleado.eliminado` existen.
+✅ Registrate | ✅ Login | ✅ Copia token | ✅ Prueba endpoints
 
-### 3. Crear un departamento
+### Endpoints Principales
+
+#### POST `/auth/login` - Login
 ```bash
-curl -X POST http://localhost:8081/departamentos \
+curl -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"id": "IT", "nombre": "Tecnología", "descripcion": "Departamento de TI"}'
+  -d '{
+    "username": "juan",
+    "password": "Pass123"
+  }'
+# Respuesta: { "access_token": "...", "role": "USER" }
 ```
 
-### 4. Crear un empleado (dispara eventos)
+#### POST `/auth/recover-password` - Recuperar
+```bash
+curl -X POST http://localhost:8082/auth/recover-password \
+  -H "Content-Type: application/json" \
+  -d '{"email": "juan@empresa.com"}'
+```
+
+#### POST `/auth/reset-password` - Restablecer
+```bash
+curl -X POST http://localhost:8082/auth/reset-password \
+  -H "Content-Type: application/json" \
+  -d '{
+    "token": "reset_token_here",
+    "newPassword": "NewPass456"
+  }'
+```
+
+### Endpoints Protegidos (empleados-service)
+
+#### GET `/empleados` - Requiere JWT
+```bash
+TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+curl -X GET http://localhost:8080/empleados \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+#### POST `/empleados` - Solo ADMIN
 ```bash
 curl -X POST http://localhost:8080/empleados \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "cedula": "123456789",
-    "nombre": "Juan Pérez",
-    "email": "juan@empresa.com",
-    "departamentoId": "IT",
-    "fechaIngreso": "2024-01-15"
+    "nombre": "Maria Garcia",
+    "departamento_id": "D001"
   }'
 ```
 
-**Guardar el `id` retornado para los siguientes pasos.**
-
-### 5. Verificar perfil creado automáticamente
+#### DELETE `/empleados/{id}` - Solo ADMIN
 ```bash
-curl http://localhost:8083/perfiles/{empleadoId}
-```
-
-### 6. Verificar notificación de bienvenida
-```bash
-curl http://localhost:8084/notificaciones/{empleadoId}
-```
-
-### 7. Actualizar perfil del empleado
-```bash
-curl -X PUT http://localhost:8083/perfiles/{empleadoId} \
-  -H "Content-Type: application/json" \
-  -d '{
-    "telefono": "3001234567",
-    "ciudad": "Armenia",
-    "biografia": "Ingeniero de sistemas"
-  }'
-```
-
-### 8. Eliminar empleado (dispara evento de desvinculación)
-```bash
-curl -X DELETE http://localhost:8080/empleados/{empleadoId}
-```
-
-### 9. Verificar notificación de desvinculación
-```bash
-curl http://localhost:8084/notificaciones/{empleadoId}
-```
-
-### 10. Verificar persistencia
-```bash
-# Reiniciar contenedores
-docker-compose restart
-
-# Verificar que los datos persisten
-curl http://localhost:8084/notificaciones
+curl -X DELETE http://localhost:8080/empleados/E001 \
+  -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
 ---
 
-## Logs de Notificaciones Simuladas
+## Ejemplos de Requests
 
-El servicio de notificaciones imprime logs estructurados simulando el envío:
+### Usuarios por Defecto
 
-```
-[NOTIFICACIÓN] Tipo: BIENVENIDA | Para: juan@empresa.com | Mensaje: "Bienvenido Juan Pérez..."
-[NOTIFICACIÓN] Tipo: DESVINCULACION | Para: juan@empresa.com | Mensaje: "Su cuenta ha sido desactivada..."
-```
+| Usuario | Contraseña | Rol |
+|---------|------------|-----|
+| `admin` | `admin123` | ADMIN |
+| `user` | `user123` | USER |
 
-Ver logs en tiempo real:
+### Flujo Completo
+
 ```bash
-docker-compose logs -f notificaciones-service
+# 1️⃣ Login
+RESPONSE=$(curl -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"maria","password":"MyPass123"}')
+
+TOKEN=$(echo $RESPONSE | jq -r '.data.access_token')
+
+# 2️⃣ Usar token
+curl -X GET http://localhost:8080/empleados \
+  -H "Authorization: Bearer $TOKEN"
+
+# 3️⃣ Intentar operación no autorizada (debe fallar con 403)
+curl -X POST http://localhost:8080/empleados \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"nombre":"Test","departamento_id":"D001"}'
 ```
+
+---
+
+## Pruebas Completas
+
+### Checklist
+
+- [ ] Paso 1: Registrar usuario USER
+- [ ] Paso 2: Login con USER
+- [ ] Paso 3: GET `/empleados` con TOKEN → 200 OK
+- [ ] Paso 4: GET `/empleados` SIN token → 401 Unauthorized
+- [ ] Paso 5: DELETE `/empleados/{id}` con USER token → 403 Forbidden
+- [ ] Paso 6: DELETE `/empleados/{id}` con ADMIN token → 200 OK
+- [ ] Paso 7: Recuperar contraseña → Recibir token en logs
+- [ ] Paso 8: Restablecer contraseña con token
+- [ ] Paso 9: Verificar eventos en `docker-compose logs`
+
+### Verificar Eventos
+
+```bash
+# Ver logs de auth-service
+docker-compose logs auth-service | grep "usuario.creado"
+
+# Ver logs de notificaciones
+docker-compose logs notificaciones-service | grep "SEGURIDAD"
+```
+
+---
+
+## Solución de Problemas
+
+### ❌ "401 Unauthorized" en todo
+
+**Solución:**
+```bash
+# Verificar que incluyes: Authorization: Bearer <TOKEN>
+# Verificar que el token no está expirado (>60 min)
+# Hacer login nuevamente
+```
+
+### ❌ "403 Forbidden" en POST/DELETE
+
+**Solución:**
+```bash
+# Usar token de ADMIN, no USER
+# USER solo puede hacer GET
+```
+
+### ❌ auth-service no conecta a BD
+
+**Solución:**
+```bash
+docker-compose restart
+docker-compose logs database-auth
+```
+
+### ❌ Eventos no se propagan
+
+**Solución:**
+```bash
+docker-compose logs message-broker
+# Acceder a: http://localhost:15672 (admin:admin)
+```
+
+---
+
+## 📊 Criterios de Evaluación
+
+| Criterio | Estado | Detalles |
+|----------|--------|----------|
+| **Autenticación JWT** | ✅ | auth-service emite tokens, bcrypt hashing |
+| **Validación de Token** | ✅ | 401 para tokens inválidos/expirados |
+| **RBAC** | ✅ | ADMIN acceso total, USER solo lectura, 403 denegación |
+| **Variables de Entorno** | ✅ | JWT_SECRET en docker-compose, no hardcodeado |
+| **Documentación** | ✅ | OpenAPI/Swagger, README con ejemplos, cURL |
+
+---
+
+## 🔐 Protección de Microservicios - Resumen
+
+### Estrategia Implementada: **Middleware/Interceptor por Servicio**
+
+✅ **Ventajas:**
+- Cada servicio es independiente
+- No hay punto único de fallo
+- Escalable horizontalmente
+- Rápido de implementar
+
+### Flujo de Validación
+
+```
+[Request + Bearer Token]
+    ↓
+[Decorador @validar_token()]
+    ↓
+[Verifica firma JWT con JWT_SECRET]
+    ↓
+[401 si inválido/expirado]
+    ↓
+[Decodifica role del payload]
+    ↓
+[Decorador @requerir_rol('ADMIN', 'USER')]
+    ↓
+[403 si rol sin permisos]
+    ↓
+[Procesa request]
+```
+
+---
+
+## 📚 Información de Contacto
+
+- 📧 Email: [tu-email@empresa.com]
+- 🔗 API Docs: `http://localhost:8082/apidocs/`
+- 📡 RabbitMQ Management: `http://localhost:15672` (admin:admin)
+
+**Version:** 1.0.0 | **Last Updated:** Abril 2026

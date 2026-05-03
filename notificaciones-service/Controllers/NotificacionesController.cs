@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NotificacionesService.Data;
@@ -9,6 +10,7 @@ namespace NotificacionesService.Controllers;
 [ApiController]
 [Route("[controller]")]
 [Produces("application/json")]
+[Authorize(Roles = "USER,ADMIN")]
 public class NotificacionesController : ControllerBase
 {
     private readonly NotificacionesDbContext _context;

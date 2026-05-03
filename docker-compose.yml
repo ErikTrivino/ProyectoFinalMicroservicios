@@ -1,5 +1,3 @@
-version: "3.9"
-
 # =========================
 # Red compartida
 # =========================
@@ -13,8 +11,9 @@ networks:
 volumes:
   empleados-db-data:
   departamentos-db-data:
-  perfiles-db-data:
+  auth-db-data:
   notificaciones-db-data:
+  perfiles-db-data:
 
 services:
 
@@ -73,10 +72,12 @@ services:
       DB_USER: empleados_user
       DB_PASSWORD: empleados_pass
       DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
-      RABBITMQ_HOST: message-broker          # AGREGAR
-      RABBITMQ_PORT: 5672                    # AGREGAR
-      RABBITMQ_USER: admin                   # AGREGAR
-      RABBITMQ_PASS: admin                   # AGREGAR
+      RABBITMQ_HOST: message-broker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
     depends_on:
       database-empleados:
         condition: service_healthy
@@ -110,6 +111,26 @@ services:
       retries: 5
 
   # ==================================================
+  # BASE DE DATOS - AUTH
+  # ==================================================
+  database-auth:
+    image: postgres:16
+    container_name: database-auth
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
   # SERVICIO - DEPARTAMENTOS
   # ==================================================
   departamentos-service:
@@ -121,61 +142,70 @@ services:
       DB_NAME: departamentos_db
       DB_USER: departamentos_user
       DB_PASSWORD: departamentos_pass
-      
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
     depends_on:
       database-departamentos:
         condition: service_healthy
     networks:
       - checkin-net
     ports:
-      - "8081:8081"
+      - "8086:8081"
 
   # ==================================================
-  # BASE DE DATOS - PERFILES (Reto 3)
+  # SERVICIO - AUTH / JWT
   # ==================================================
-  database-perfiles:
-    image: postgres:16
-    container_name: database-perfiles
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
     environment:
-      POSTGRES_DB: perfiles_db
-      POSTGRES_USER: perfiles_user
-      POSTGRES_PASSWORD: perfiles_pass
-    volumes:
-      - perfiles-db-data:/var/lib/postgresql/data
-    networks:
-      - checkin-net
-    ports:
-      - "5439:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ==================================================
-  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
-  # ==================================================
-  perfiles-service:
-    build: ./java
-    container_name: perfiles-service
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
-      SPRING_DATASOURCE_USERNAME: perfiles_user
-      SPRING_DATASOURCE_PASSWORD: perfiles_pass
-      SPRING_RABBITMQ_HOST: message-broker
-      SPRING_RABBITMQ_PORT: 5672
-      SPRING_RABBITMQ_USERNAME: admin
-      SPRING_RABBITMQ_PASSWORD: admin
+      DB_HOST: database-auth
+      DB_PORT: 5432
+      DB_NAME: auth_db
+      DB_USER: auth_user
+      DB_PASSWORD: auth_pass
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRES_MINUTES: 15
+      RESET_TOKEN_EXPIRES_MINUTES: 60
+      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
+      AUTH_ADMIN_USER: admin
+      AUTH_ADMIN_PASSWORD: admin123
+      AUTH_DEFAULT_USER: user
+      AUTH_DEFAULT_PASSWORD: user123
     depends_on:
-      database-perfiles:
+      database-auth:
         condition: service_healthy
       message-broker:
-        condition: service_healthy
+        condition: service_started
     networks:
       - checkin-net
     ports:
-      - "8083:8083"
+      - "8082:80"
 
+  # ... (tus servicios anteriores) ...
+
+  # ==================================================
+  # MESSAGE BROKER (RabbitMQ) - [cite: 29, 31]
+  # ==================================================
+  message-broker:
+    image: rabbitmq:3-management
+    container_name: message-broker
+    ports:
+      - "5672:5672"   # Puerto de mensajería
+      - "15672:15672" # Interfaz UI
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - checkin-net
+
+  
   # ==================================================
   # BASE DE DATOS - NOTIFICACIONES (Reto 3)
   # ==================================================
@@ -219,4 +249,51 @@ services:
       - checkin-net
     ports:
       - "8084:8084"
-  
+
+ # ==================================================
+  # BASE DE DATOS - PERFILES (Reto 3)
+  # ==================================================
+  database-perfiles:
+    image: postgres:16
+    container_name: database-perfiles
+    environment:
+      POSTGRES_DB: perfiles_db
+      POSTGRES_USER: perfiles_user
+      POSTGRES_PASSWORD: perfiles_pass
+    volumes:
+      - perfiles-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
+  # ==================================================
+  perfiles-service:
+    build: ./perfiles-service
+    container_name: perfiles-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
+      SPRING_DATASOURCE_USERNAME: perfiles_user
+      SPRING_DATASOURCE_PASSWORD: perfiles_pass
+      SPRING_RABBITMQ_HOST: message-broker
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+    depends_on:
+      database-perfiles:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8083:8083"
