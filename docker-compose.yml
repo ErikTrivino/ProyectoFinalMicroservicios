@@ -177,35 +177,12 @@ services:
       database-auth:
         condition: service_healthy
       message-broker:
-        condition: service_started
+        condition: service_healthy
     networks:
       - checkin-net
     ports:
       - "8082:80"
 
-  # ... (tus servicios anteriores) ...
-
-  # ==================================================
-  # MESSAGE BROKER (RabbitMQ) - [cite: 29, 31]
-  # ==================================================
-  message-broker:
-    image: rabbitmq:3-management
-    container_name: message-broker
-    ports:
-      - "5672:5672"   # Puerto de mensajería
-      - "15672:15672" # Interfaz UI
-    environment:
-      RABBITMQ_DEFAULT_USER: admin
-      RABBITMQ_DEFAULT_PASS: admin
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    networks:
-      - checkin-net
-
-  
   # ==================================================
   # BASE DE DATOS - NOTIFICACIONES (Reto 3)
   # ==================================================
