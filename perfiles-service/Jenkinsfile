@@ -1,0 +1,219 @@
+// ============================================================
+// Jenkinsfile - perfiles-service (Java/Spring Boot/Gradle)
+// Reto 6 - Integración Continua
+// ============================================================
+// Pipeline declarativo con etapas:
+//   Checkout → Build → Test → SonarQube → Quality Gate →
+//   Package → Publish → E2E Tests
+// ============================================================
+
+pipeline {
+    agent any
+
+    environment {
+        SERVICE_NAME = 'perfiles-service'
+        IMAGE_NAME   = "proyecto-perfiles"
+        REGISTRY     = "localhost:5000"
+        SONAR_TOKEN  = credentials('sonar-token')
+    }
+
+    stages {
+
+        // ========================================
+        // ETAPA 1: Checkout
+        // ========================================
+        stage('Checkout') {
+            steps {
+                echo "📥 Obteniendo código fuente de ${SERVICE_NAME}..."
+                checkout scm
+            }
+        }
+
+        // ========================================
+        // ETAPA 2: Build
+        // ========================================
+        stage('Build') {
+            agent {
+                docker {
+                    image 'gradle:8.14-jdk17'
+                    args '-v gradle-cache:/home/gradle/.gradle'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🔨 Compilando ${SERVICE_NAME} con Gradle..."
+                    sh 'gradle clean build -x test --no-daemon'
+                    echo "✅ Build exitoso"
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 3: Test + Cobertura (JaCoCo)
+        // ========================================
+        stage('Test') {
+            agent {
+                docker {
+                    image 'gradle:8.14-jdk17'
+                    args '-v gradle-cache:/home/gradle/.gradle'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🧪 Ejecutando tests unitarios de ${SERVICE_NAME}..."
+                    sh 'gradle test jacocoTestReport --no-daemon'
+                }
+            }
+            post {
+                always {
+                    junit "${SERVICE_NAME}/build/test-results/test/*.xml"
+                    jacoco(
+                        execPattern: "${SERVICE_NAME}/build/jacoco/test.exec",
+                        classPattern: "${SERVICE_NAME}/build/classes",
+                        sourcePattern: "${SERVICE_NAME}/src/main/java"
+                    )
+                    publishHTML(target: [
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: "${SERVICE_NAME}/build/reports/jacoco/test/html",
+                        reportFiles: 'index.html',
+                        reportName: 'Cobertura Perfiles (JaCoCo)'
+                    ])
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 4: SonarQube Analysis
+        // ========================================
+        stage('SonarQube Analysis') {
+            agent {
+                docker {
+                    image 'gradle:8.14-jdk17'
+                    args '-v gradle-cache:/home/gradle/.gradle --network checkin-net'
+                    reuseNode true
+                }
+            }
+            steps {
+                dir("${SERVICE_NAME}") {
+                    echo "🔍 Ejecutando análisis SonarQube para ${SERVICE_NAME}..."
+                    sh """
+                        gradle sonar --no-daemon \
+                            -Dsonar.host.url=http://sonarqube:9000 \
+                            -Dsonar.token=${SONAR_TOKEN}
+                    """
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 5: Quality Gate
+        // ========================================
+        stage('Quality Gate') {
+            steps {
+                echo "🚦 Esperando resultado del Quality Gate..."
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 6: Package (Docker Build)
+        // ========================================
+        stage('Package') {
+            steps {
+                dir("${SERVICE_NAME}") {
+                    script {
+                        def imageTag = "${env.BUILD_NUMBER}"
+
+                        echo "🐋 Construyendo imagen Docker: ${IMAGE_NAME}:${imageTag}..."
+                        sh "docker build -t ${IMAGE_NAME}:${imageTag} -t ${IMAGE_NAME}:latest ."
+
+                        // Verificar que la imagen se construyó
+                        sh "docker images ${IMAGE_NAME}:${imageTag}"
+                        echo "✅ Imagen construida: ${IMAGE_NAME}:${imageTag}"
+                    }
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 7: Publish (Docker Registry)
+        // ========================================
+        stage('Publish') {
+            steps {
+                script {
+                    def imageTag = "${env.BUILD_NUMBER}"
+
+                    echo "📤 Publicando imagen al registry local..."
+                    sh "docker tag ${IMAGE_NAME}:${imageTag} ${REGISTRY}/${IMAGE_NAME}:${imageTag}"
+                    sh "docker tag ${IMAGE_NAME}:latest ${REGISTRY}/${IMAGE_NAME}:latest"
+                    sh "docker push ${REGISTRY}/${IMAGE_NAME}:${imageTag}"
+                    sh "docker push ${REGISTRY}/${IMAGE_NAME}:latest"
+
+                    echo "✅ Imagen publicada: ${REGISTRY}/${IMAGE_NAME}:${imageTag}"
+                }
+            }
+        }
+
+        // ========================================
+        // ETAPA 8: E2E Tests (BDD con Behave)
+        // ========================================
+        stage('E2E Tests') {
+            steps {
+                echo "🧪 Iniciando pruebas E2E..."
+
+                // Levantar el sistema completo
+                sh 'docker-compose -f docker-compose.yml up -d --build'
+
+                // Esperar a que los servicios estén listos
+                sh 'chmod +x jenkins/wait-for-services.sh && bash jenkins/wait-for-services.sh'
+
+                // Ejecutar suite BDD
+                sh '''
+                    docker run --rm \
+                        --network checkin-net \
+                        -v $(pwd)/pruebas-funcionales:/app \
+                        -w /app \
+                        -e AUTH_URL=http://auth-service:80 \
+                        -e EMPLEADOS_URL=http://empleados-service:80 \
+                        -e DEPARTAMENTOS_URL=http://departamentos-service:8081 \
+                        -e NOTIFICACIONES_URL=http://notificaciones-service:8084 \
+                        -e PERFILES_URL=http://perfiles-service:8083 \
+                        -e ADMIN_USER=admin \
+                        -e ADMIN_PASS=admin123 \
+                        -e DEFAULT_USER=user \
+                        -e DEFAULT_PASS=user123 \
+                        python:3.11-slim \
+                        bash -c "pip install -r requirements.txt && python -m behave"
+                '''
+            }
+            post {
+                always {
+                    echo "🧹 Limpiando entorno E2E..."
+                    sh 'docker-compose -f docker-compose.yml down -v || true'
+                }
+            }
+        }
+    }
+
+    // ========================================
+    // POST - Acciones finales
+    // ========================================
+    post {
+        always {
+            echo '📋 Pipeline finalizado'
+            cleanWs()
+        }
+        success {
+            echo '✅ Pipeline completado exitosamente'
+        }
+        failure {
+            echo '❌ El pipeline ha fallado'
+        }
+    }
+}

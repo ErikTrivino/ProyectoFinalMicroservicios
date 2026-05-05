@@ -17,6 +17,8 @@
 7. [Ejemplos de Requests](#ejemplos-de-requests)
 8. [Pruebas Completas](#pruebas-completas)
 9. [Solución de Problemas](#solución-de-problemas)
+10. [Integración Continua (CI)](#-integración-continua-ci--reto-6)
+
 
 ---
 
@@ -30,8 +32,12 @@
 | **empleados-service** | 8080 | CRUD de empleados. Requiere JWT en Authorization header |
 | **departamentos-service** | 8081 | CRUD de departamentos. Requiere JWT |
 | **notificaciones-service** | 3000 | Consumer de eventos. Registra notificaciones de ciclo de vida |
+| **perfiles-service** | 8083 | Gestión de perfiles de empleados (Java/Spring Boot) |
 | **RabbitMQ** | 5672 | Message broker para eventos asíncronos |
 | **PostgreSQL (x4)** | N/A | Bases de datos independientes por servicio |
+| **Jenkins** | 9090 | Servidor de Integración Continua (Reto 6) |
+| **SonarQube** | 9000 | Análisis de calidad de código (Reto 6) |
+| **Docker Registry** | 5000 | Registry local para imágenes Docker (Reto 6) |
 
 ### Flujo de Eventos
 
@@ -418,10 +424,102 @@ docker-compose logs message-broker
 
 ---
 
+## 🔄 Integración Continua (CI) — Reto 6
+
+### ¿Qué es CI y por qué se integra?
+
+La **Integración Continua (CI)** automatiza la compilación, pruebas y empaquetado del código en cada cambio. En este proyecto de microservicios es especialmente valiosa porque:
+
+- **Múltiples servicios, múltiples lenguajes:** Python, Java, C# — cada uno con su propio pipeline
+- **Detección temprana de errores:** Los problemas se detectan en minutos, no en días
+- **Deployments independientes:** Cada servicio se compila, prueba y empaqueta de forma independiente
+- **Confianza en el código:** El pipeline verifica todo en un entorno limpio y reproducible
+
+### 🏗️ Arquitectura CI
+
+```
+🐳 Docker Compose
+├── ⚙️ Jenkins (:9090)         → Servidor CI
+├── 🔍 SonarQube (:9000)       → Calidad de código
+├── 🗄️ Docker Registry (:5000) → Registry local de imágenes
+└── [microservicios existentes...]
+```
+
+### 🔗 Acceso a Servicios CI
+
+| Servicio | URL | Credenciales |
+|----------|-----|-------------|
+| **Jenkins** | http://localhost:9090 | `admin` / `admin123` |
+| **SonarQube** | http://localhost:9000 | `admin` / `admin` (cambiar en 1er login) |
+| **Docker Registry** | http://localhost:5000 | Sin autenticación |
+
+### 📋 Instrucciones de Configuración
+
+#### a. Levantar el sistema con Jenkins incluido
+
+```bash
+docker-compose up --build -d
+```
+
+Esto levanta todos los microservicios + Jenkins + SonarQube + Docker Registry.
+
+#### b. Obtener acceso a Jenkins
+
+Jenkins se configura automáticamente sin Setup Wizard. Acceder a http://localhost:9090 con `admin` / `admin123`.
+
+#### c. Crear/importar los pipelines
+
+Los pipelines se aprovisionan automáticamente via **JCasC** (Jenkins Configuration as Code). Al levantar Jenkins, los jobs ya están creados:
+- `empleados-service-pipeline` (Python/Flask)
+- `perfiles-service-pipeline` (Java/Spring Boot)
+- `verificacion-docker` (Pipeline de verificación)
+
+#### d. Ejecutar un pipeline manualmente
+
+1. Ir al job en Jenkins (ej. `empleados-service-pipeline`)
+2. Click en **"Build Now"**
+3. Observar progreso en **"Stage View"**
+4. Click en cada etapa para ver logs detallados
+
+### ⚙️ Etapas del Pipeline
+
+| # | Etapa | Qué verifica | ✅ Verde | ❌ Rojo |
+|---|-------|-------------|---------|--------|
+| 1 | **Checkout** | Obtiene código fuente | Código descargado | Repo no accesible |
+| 2 | **Build** | Compila/instala dependencias | Compilación exitosa | Error de compilación |
+| 3 | **Test** | Tests unitarios + cobertura | Todos los tests pasan | Un test falla |
+| 4 | **SonarQube** | Envía análisis de calidad | Análisis completado | SonarQube no disponible |
+| 5 | **Quality Gate** | Verifica cobertura ≥ 70% | Cumple umbrales | Cobertura insuficiente |
+| 6 | **Package** | Construye imagen Docker | Imagen construida | Error en Dockerfile |
+| 7 | **Publish** | Publica imagen al registry | Push exitoso | Registry no disponible |
+| 8 | **E2E Tests** | Pruebas funcionales BDD | Escenarios pasan | Escenario falla |
+
+### 📊 Cómo interpretar los resultados
+
+- **Todo verde:** El código compila, pasa tests, cumple calidad y las pruebas E2E son exitosas
+- **Rojo en Test:** Hay un test unitario que falla — revisar el log de la etapa
+- **Rojo en Quality Gate:** La cobertura está por debajo del 70% — agregar más tests
+- **Rojo en Package:** Error en el Dockerfile — verificar la sintaxis
+- **Rojo en E2E:** Un escenario BDD falla — verificar los endpoints del servicio
+
+> 📖 **Documentación detallada:** Ver [RETO6_CI.md](RETO6_CI.md) para decisiones técnicas, justificaciones y configuración avanzada.
+
+### 🔧 Configuración de SonarQube
+
+1. Acceder a http://localhost:9000 y cambiar contraseña
+2. Crear token: **My Account → Security → Generate Token**
+3. Actualizar token en `jenkins/casc.yaml`
+4. Crear Quality Gate personalizado con cobertura ≥ 70%
+5. Configurar webhook: **Administration → Webhooks → Create** → `http://jenkins:8080/sonarqube-webhook/`
+
+---
+
 ## 📚 Información de Contacto
 
 - 📧 Email: [tu-email@empresa.com]
 - 🔗 API Docs: `http://localhost:8082/apidocs/`
 - 📡 RabbitMQ Management: `http://localhost:15672` (admin:admin)
+- ⚙️ Jenkins CI: `http://localhost:9090` (admin:admin123)
+- 🔍 SonarQube: `http://localhost:9000` (admin:admin)
 
-**Version:** 1.0.0 | **Last Updated:** Abril 2026
+**Version:** 2.0.0 | **Last Updated:** Mayo 2026

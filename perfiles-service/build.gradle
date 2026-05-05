@@ -2,6 +2,8 @@ plugins {
     id 'java'
     id 'org.springframework.boot' version '3.4.1'
     id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'                                           // Reto 6: Cobertura de código
+    id 'org.sonarqube' version '5.1.0.4882'               // Reto 6: Análisis de calidad
 }
 
 group = 'com.example'
@@ -68,4 +70,32 @@ dependencies {
 
 tasks.named('test') {
     useJUnitPlatform()
+    finalizedBy jacocoTestReport  // Generar reporte después de tests
+}
+
+// ============================================================
+// JaCoCo - Configuración de cobertura (Reto 6)
+// ============================================================
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true       // Necesario para SonarQube
+        html.required = true      // Reporte visual
+        csv.required = false
+    }
+}
+
+// ============================================================
+// SonarQube - Configuración de análisis (Reto 6)
+// ============================================================
+sonar {
+    properties {
+        property "sonar.projectKey", "perfiles-service"
+        property "sonar.projectName", "Perfiles Service"
+        property "sonar.host.url", System.getenv("SONAR_HOST_URL") ?: "http://sonarqube:9000"
+        property "sonar.token", System.getenv("SONAR_TOKEN") ?: ""
+        property "sonar.java.coveragePlugin", "jacoco"
+        property "sonar.coverage.jacoco.xmlReportPaths", "${layout.buildDirectory.get()}/reports/jacoco/test/jacocoTestReport.xml"
+        property "sonar.sourceEncoding", "UTF-8"
+    }
 }

@@ -1,0 +1,96 @@
+# ============================================================
+# Jenkins Configuration as Code (JCasC)
+# Reto 6 - Integración Continua
+# ============================================================
+# Este archivo configura automáticamente Jenkins al arrancar:
+#   - Seguridad (usuario admin)
+#   - Herramientas (SonarQube Scanner)
+#   - Credenciales (SonarQube token)
+#   - Jobs (pipelines para cada microservicio)
+# ============================================================
+
+jenkins:
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "admin123"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  numExecutors: 4
+
+# ============================================================
+# Configuración de SonarQube Server
+# ============================================================
+unclassified:
+  sonarGlobalConfiguration:
+    installations:
+      - name: "SonarQube"
+        serverUrl: "http://sonarqube:9000"
+        credentialsId: "sonar-token"
+        triggers:
+          skipScmCause: false
+          skipUpstreamCause: false
+
+# ============================================================
+# Credenciales
+# ============================================================
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - string:
+              scope: GLOBAL
+              id: "sonar-token"
+              secret: "sqa_default_token"
+              description: "SonarQube Authentication Token"
+
+# ============================================================
+# Jobs - Pipelines para microservicios
+# ============================================================
+jobs:
+  - script: |
+      pipelineJob('empleados-service-pipeline') {
+        description('Pipeline CI para empleados-service (Python/Flask)')
+        definition {
+          cps {
+            script(new File('/var/jenkins_home/workspace-config/empleados-service/Jenkinsfile').text)
+            sandbox(true)
+          }
+        }
+      }
+  - script: |
+      pipelineJob('perfiles-service-pipeline') {
+        description('Pipeline CI para perfiles-service (Java/Spring Boot)')
+        definition {
+          cps {
+            script(new File('/var/jenkins_home/workspace-config/perfiles-service/Jenkinsfile').text)
+            sandbox(true)
+          }
+        }
+      }
+  - script: |
+      pipelineJob('verificacion-docker') {
+        description('Pipeline de verificación - Docker funciona desde Jenkins')
+        definition {
+          cps {
+            script('''
+              pipeline {
+                agent any
+                stages {
+                  stage('Verificacion') {
+                    steps {
+                      echo '✅ Jenkins está correctamente configurado'
+                      sh 'docker --version'
+                      sh 'docker ps'
+                    }
+                  }
+                }
+              }
+            '''.stripIndent())
+            sandbox(true)
+          }
+        }
+      }
