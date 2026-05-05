@@ -251,6 +251,15 @@ def validar_departamento(departamento_id, retries=3):
     return None
 
 # ======================================================
+# GET /health
+# ======================================================
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+# ======================================================
 # POST /empleados
 # ======================================================
 
@@ -370,65 +379,6 @@ def registrar_empleado():
             "id": emp_id,
             **data
         }, 201)
-
-    except Exception as e:
-        conn.rollback()
-        return respuesta_error(str(e), 500)
-
-    finally:
-        cur.close()
-        conn.close()
-
-
-# ======================================================
-# DELETE /empleados/{id} (Reto 3)
-# ======================================================
-
-@app.route('/empleados/<id>', methods=['DELETE'])
-def eliminar_empleado(id):
-    """
-    Eliminar un empleado por ID
-    ---
-    tags:
-      - Empleados
-    parameters:
-      - name: id
-        in: path
-        type: string
-        required: true
-        description: ID del empleado
-    responses:
-      200:
-        description: Empleado eliminado correctamente
-      404:
-        description: Empleado no existe
-    """
-    conn = get_db()
-    cur = conn.cursor()
-
-    try:
-        cur.execute("""
-            SELECT id, nombre, email
-            FROM empleados WHERE id=%s
-        """, (id,))
-
-        row = cur.fetchone()
-
-        if not row:
-            return respuesta_error("Empleado no existe", 404)
-
-
-        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
-        conn.commit()
-
-        evento = {
-            "id": row[0],
-            "nombre": row[1],
-            "email": row[2]
-        }
-        publicar_evento("empleado.eliminado", "", evento)
-
-        return respuesta_exitosa("Empleado eliminado", evento)
 
     except Exception as e:
         conn.rollback()
