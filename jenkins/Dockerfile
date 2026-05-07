@@ -10,8 +10,8 @@ FROM jenkins/jenkins:lts-jdk17
 # ============================================================
 RUN jenkins-plugin-cli --plugins \
     workflow-aggregator \
-    docker-pipeline \
     docker-workflow \
+    docker-commons \
     pipeline-stage-view \
     git \
     configuration-as-code \

@@ -32,6 +32,7 @@ services:
       context: ./jenkins
       dockerfile: Dockerfile
     container_name: jenkins
+    user: root
     ports:
       - "9090:8080"       # Interfaz web
       - "50000:50000"     # Comunicación con agentes
@@ -90,9 +91,10 @@ services:
       - checkin-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
-      interval: 5s
+      interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   # ==================================================
   # DOCKER REGISTRY LOCAL (Reto 6)

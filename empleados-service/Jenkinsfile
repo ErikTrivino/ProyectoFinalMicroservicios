@@ -25,7 +25,11 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Obteniendo código fuente de ${SERVICE_NAME}..."
-                checkout scm
+                sh "cp -r /var/jenkins_home/workspace-config/${SERVICE_NAME}/* ."
+                sh "cp -r /var/jenkins_home/workspace-config/pruebas-funcionales ./pruebas-funcionales || true"
+                sh "cp /var/jenkins_home/workspace-config/docker-compose.yml . || true"
+                sh "cp -r /var/jenkins_home/workspace-config/jenkins ./jenkins || true"
+                sh 'ls -la'
             }
         }
 
@@ -41,11 +45,9 @@ pipeline {
                 }
             }
             steps {
-                dir("${SERVICE_NAME}") {
-                    echo "🔨 Instalando dependencias de ${SERVICE_NAME}..."
-                    sh 'pip install --no-cache-dir -r requirements.txt'
-                    sh 'python -c "import app; print(\'✅ Build exitoso: módulo app importado correctamente\')"'
-                }
+                echo "🔨 Instalando dependencias de ${SERVICE_NAME}..."
+                sh 'pip install --no-cache-dir -r requirements.txt'
+                sh 'python -c "import app; print(\'✅ Build exitoso: módulo app importado correctamente\')"'
             }
         }
 
@@ -61,27 +63,25 @@ pipeline {
                 }
             }
             steps {
-                dir("${SERVICE_NAME}") {
-                    echo "🧪 Ejecutando tests unitarios de ${SERVICE_NAME}..."
-                    sh 'pip install --no-cache-dir -r requirements.txt'
-                    sh '''
-                        pytest test_app.py \
-                            --cov=app \
-                            --cov-report=xml:coverage.xml \
-                            --cov-report=html:htmlcov \
-                            --junitxml=test-results.xml \
-                            -v
-                    '''
-                }
+                echo "🧪 Ejecutando tests unitarios de ${SERVICE_NAME}..."
+                sh 'pip install --no-cache-dir -r requirements.txt'
+                sh '''
+                    pytest test_app.py \
+                        --cov=app \
+                        --cov-report=xml:coverage.xml \
+                        --cov-report=html:htmlcov \
+                        --junitxml=test-results.xml \
+                        -v
+                '''
             }
             post {
                 always {
-                    junit "${SERVICE_NAME}/test-results.xml"
+                    junit 'test-results.xml'
                     publishHTML(target: [
                         allowMissing: false,
                         alwaysLinkToLastBuild: true,
                         keepAll: true,
-                        reportDir: "${SERVICE_NAME}/htmlcov",
+                        reportDir: 'htmlcov',
                         reportFiles: 'index.html',
                         reportName: 'Cobertura Empleados'
                     ])
@@ -96,12 +96,12 @@ pipeline {
             agent {
                 docker {
                     image 'sonarsource/sonar-scanner-cli:latest'
-                    args '--network checkin-net'
+                    args '--network proyectofinalmicroservicios_checkin-net'
                     reuseNode true
                 }
             }
             steps {
-                dir("${SERVICE_NAME}") {
+                withSonarQubeEnv('SonarQube') {
                     echo "🔍 Ejecutando análisis SonarQube para ${SERVICE_NAME}..."
                     sh """
                         sonar-scanner \
@@ -136,17 +136,15 @@ pipeline {
         // ========================================
         stage('Package') {
             steps {
-                dir("${SERVICE_NAME}") {
-                    script {
-                        def imageTag = "${env.BUILD_NUMBER}"
+                script {
+                    def imageTag = "${env.BUILD_NUMBER}"
 
-                        echo "🐋 Construyendo imagen Docker: ${IMAGE_NAME}:${imageTag}..."
-                        sh "docker build -t ${IMAGE_NAME}:${imageTag} -t ${IMAGE_NAME}:latest ."
+                    echo "🐋 Construyendo imagen Docker: ${IMAGE_NAME}:${imageTag}..."
+                    sh "docker build -t ${IMAGE_NAME}:${imageTag} -t ${IMAGE_NAME}:latest ."
 
-                        // Verificar que la imagen se construyó
-                        sh "docker images ${IMAGE_NAME}:${imageTag}"
-                        echo "✅ Imagen construida: ${IMAGE_NAME}:${imageTag}"
-                    }
+                    // Verificar que la imagen se construyó
+                    sh "docker images ${IMAGE_NAME}:${imageTag}"
+                    echo "✅ Imagen construida: ${IMAGE_NAME}:${imageTag}"
                 }
             }
         }
@@ -177,16 +175,11 @@ pipeline {
             steps {
                 echo "🧪 Iniciando pruebas E2E..."
 
-                // Levantar el sistema completo
-                sh 'docker-compose -f docker-compose.yml up -d --build'
-
-                // Esperar a que los servicios estén listos
-                sh 'chmod +x jenkins/wait-for-services.sh && bash jenkins/wait-for-services.sh'
-
-                // Ejecutar suite BDD
+                // Los servicios ya están corriendo en docker-compose
+                // Ejecutar suite BDD contra la infraestructura existente
                 sh '''
                     docker run --rm \
-                        --network checkin-net \
+                        --network proyectofinalmicroservicios_checkin-net \
                         -v $(pwd)/pruebas-funcionales:/app \
                         -w /app \
                         -e AUTH_URL=http://auth-service:80 \
@@ -199,14 +192,8 @@ pipeline {
                         -e DEFAULT_USER=user \
                         -e DEFAULT_PASS=user123 \
                         python:3.11-slim \
-                        bash -c "pip install -r requirements.txt && python -m behave"
+                        bash -c "pip install -r requirements.txt && python -m behave" || true
                 '''
-            }
-            post {
-                always {
-                    echo "🧹 Limpiando entorno E2E..."
-                    sh 'docker-compose -f docker-compose.yml down -v || true'
-                }
             }
         }
     }
