@@ -259,6 +259,98 @@ curl -X POST http://localhost:8082/auth/reset-password \
 
 ### Endpoints Protegidos (empleados-service)
 
+---
+
+## Observabilidad y Monitoreo
+
+### Dashboard Grafana
+
+La dashboard de observabilidad está preconfigurada en:
+
+- `observability/grafana/provisioning/dashboards/dashboard.json`
+
+Incluye los paneles:
+- **Estado**: Servicios activos mediante `up` de Prometheus.
+- **Tasa de Peticiones**: tasa unificada de `flask_http_request_total`, `http_requests_received_total` y `http_server_requests_seconds_count`.
+- **Latencia Promedio**: promedio de duración basada en `_sum / _count` para Flask, .NET y Java.
+- **Errores 4xx/5xx**: tasa de errores por servicio.
+
+### Provisión de Grafana
+
+Grafana importa automáticamente:
+
+- `Prometheus` en `http://prometheus:9090`
+- `Loki` en `http://loki:3100`
+- `Zipkin` en `http://zipkin:9411`
+
+La configuración de notificaciones usa un webhook configurable en:
+
+- `observability/grafana/provisioning/notifiers/discord-webhook.yml`
+
+> Reemplaza `REPLACE_WITH_YOUR_WEBHOOK` con tu URL de Discord.
+
+### Prometheus Scrape
+
+Los servicios están configurados en `observability/prometheus.yml` con estos jobs:
+
+- `auth-service`
+- `empleados-service`
+- `departamentos-service`
+- `notificaciones-service`
+- `perfiles-service`
+
+### Consultas útiles
+
+**Tasa unificada de peticiones**
+
+```promql
+sum by (job) (
+  rate(flask_http_request_total[5m])
+  or rate(http_requests_received_total[5m])
+  or rate(http_server_requests_seconds_count[5m])
+)
+```
+
+**Latencia promedio**
+
+```promql
+sum by (job) (
+  rate(flask_http_request_duration_seconds_sum[5m]) / rate(flask_http_request_duration_seconds_count[5m])
+  or rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m])
+  or rate(http_server_requests_seconds_sum[5m]) / rate(http_server_requests_seconds_count[5m])
+)
+```
+
+**Errores 4xx/5xx**
+
+```promql
+sum by (job) (
+  rate(flask_http_request_total{code=~"4..|5.."}[5m])
+  or rate(http_requests_received_total{status=~"4..|5.."}[5m])
+  or rate(http_server_requests_seconds_count{status=~"4..|5.."}[5m])
+)
+```
+
+**Consulta LogQL de ejemplo para Loki**
+
+```logql
+{service="empleados-service"} | json | level="ERROR"
+```
+
+### Cómo verificar
+
+1. Levanta la pila:
+
+```bash
+docker-compose up -d
+```
+
+2. Abre Grafana en `http://localhost:3000`.
+3. Revisa que el dashboard `Observabilidad Microservicios` esté disponible.
+4. Desde Grafana → Explore → Loki, pega la query LogQL anterior.
+
+---
+
 #### GET `/empleados` - Requiere JWT
 ```bash
 TOKEN="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
