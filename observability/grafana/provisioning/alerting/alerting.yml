@@ -15,8 +15,21 @@ contactPoints:
         settings:
           bottoken: '8505828838:AAENPPS0AQ7XBxCCO8PWJFdlZJPAgPEmFpU'
           chatid: '1939066834'
+      - uid: slack-webhook
+        type: slack
+        disableResolveMessage: false
+        settings:
+          url: 'https://hooks.slack.com/services/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'
+      - uid: email-alert
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: 'equipo@microservicios.local'
 
 policies:
   - orgId: 1
     receiver: Alertas Globales
     group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 1m
+    repeat_interval: 5m

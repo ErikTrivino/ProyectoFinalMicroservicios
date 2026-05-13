@@ -43,6 +43,8 @@ groups:
               refId: C
               type: classic_conditions
         for: 1m
+        noDataState: OK
+        execErrState: Error
         annotations:
           message: "El servicio ha dejado de responder al scraping de Prometheus por 1 minuto."
         labels:
@@ -58,7 +60,7 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: sum(rate(flask_http_request_total{code=~"5.."}[2m]) or rate(http_requests_received_total{status=~"5.."}[2m]) or rate(http_server_requests_seconds_count{status=~"5.."}[2m])) / sum(rate(flask_http_request_total[2m]) or rate(http_requests_received_total[2m]) or rate(http_server_requests_seconds_count[2m])) > 0.10
+              expr: "sum(rate(flask_http_request_total{code=~\"5..\"}[2m]) or rate(http_requests_received_total{status=~\"5..\"}[2m]) or rate(http_server_requests_seconds_count{status=~\"5..\"}[2m])) / sum(rate(flask_http_request_total[2m]) or rate(http_requests_received_total[2m]) or rate(http_server_requests_seconds_count[2m]))"
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
@@ -67,7 +69,7 @@ groups:
             model:
               conditions:
                 - evaluator:
-                    params: [0]
+                    params: [0.10]
                     type: gt
                   operator:
                     type: and
@@ -86,6 +88,8 @@ groups:
               refId: C
               type: classic_conditions
         for: 2m
+        noDataState: OK
+        execErrState: Error
         annotations:
           message: "La tasa de errores 5xx supera el 10% de forma sostenida en los últimos 2 minutos."
         labels:

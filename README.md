@@ -289,13 +289,14 @@ El sistema cuenta con alertas proactivas configuradas en Grafana (Unified Alerti
 1. **Servicio Caído:** Se dispara si un microservicio deja de responder al scraping de Prometheus (`up == 0`) durante 1 minuto.
 2. **Alta Tasa de Errores:** Se dispara si el porcentaje de respuestas HTTP 5xx supera el 10% durante 2 minutos.
 
-**Canales de notificación elegidos: Discord Webhook y Telegram Bot**
-- **Complejidad:** Baja
+**Canales de notificación elegidos: Discord Webhook, Telegram Bot y Slack**
+- **Complejidad:** Baja a Media
 - **Configuración (Discord):** Se ha creado un servidor de Discord y se ha generado una URL de Webhook.
-- **Configuración (Telegram):** Se ha creado un bot con @BotFather y configurado el `chat_id`. (Se deben reemplazar los valores en `alerting.yml`).
+- **Configuración (Telegram):** Se ha creado un bot con @BotFather y configurado el `chat_id`. 
+- **Configuración (Slack):** Se requiere crear una app en un workspace de Slack y habilitar "Incoming Webhooks" para obtener la URL. (Reemplazar en `alerting.yml`).
 - La configuración se encuentra centralizada en Grafana mediante un Contact Point provisionado a través del archivo:
   - `observability/grafana/provisioning/alerting/alerting.yml`
-- Todas las alertas de Grafana son enrutadas simultáneamente a Discord y Telegram, notificando en tiempo real cuando un microservicio falla o experimenta alta tasa de errores.
+- Todas las alertas de Grafana son enrutadas simultáneamente a Discord, Telegram y Slack notificando en tiempo real cuando un microservicio falla o experimenta alta tasa de errores.
 
 ### Prometheus Scrape
 

@@ -387,6 +387,12 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
+      # SMTP via Mailhog
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=mailhog:1025
+      - GF_SMTP_FROM_ADDRESS=grafana@microservicios.local
+      - GF_SMTP_FROM_NAME=Grafana Alertas
+      - GF_SMTP_SKIP_VERIFY=true
     volumes:
       - ./observability/grafana/provisioning:/etc/grafana/provisioning
       - ./observability/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
@@ -395,8 +401,22 @@ services:
     depends_on:
       - prometheus
       - loki
+      - mailhog
     networks:
       - checkin-net
+
+  # ==================================================
+  # MAILHOG - Servidor SMTP de prueba
+  # ==================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    ports:
+      - "1025:1025"   # Puerto SMTP (Grafana envía aquí)
+      - "8025:8025"   # Interfaz web para ver emails
+    networks:
+      - checkin-net
+    restart: unless-stopped
 
   zipkin:
     image: openzipkin/zipkin:latest
