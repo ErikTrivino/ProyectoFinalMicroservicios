@@ -283,11 +283,18 @@ Grafana importa automáticamente:
 - `Loki` en `http://loki:3100`
 - `Zipkin` en `http://zipkin:9411`
 
-La configuración de notificaciones usa un webhook configurable en:
+### Alertas Proactivas y Canal de Notificación
 
-- `observability/grafana/provisioning/notifiers/discord-webhook.yml`
+El sistema cuenta con alertas proactivas configuradas en Grafana (Unified Alerting) para notificar al equipo de soporte de forma automática:
+1. **Servicio Caído:** Se dispara si un microservicio deja de responder al scraping de Prometheus (`up == 0`) durante 1 minuto.
+2. **Alta Tasa de Errores:** Se dispara si el porcentaje de respuestas HTTP 5xx supera el 10% durante 2 minutos.
 
-> Reemplaza `REPLACE_WITH_YOUR_WEBHOOK` con tu URL de Discord.
+**Canal de notificación elegido: Discord Webhook**
+- **Complejidad:** Baja
+- **Configuración:** Se ha creado un servidor de Discord y se ha generado una URL de Webhook. La configuración se encuentra en Grafana mediante un Contact Point provisionado a través de los archivos:
+  - `observability/grafana/provisioning/alerting/contact_points.yml`
+  - `observability/grafana/provisioning/alerting/policies.yml`
+- Todas las alertas de Grafana son enrutadas a este Webhook de Discord, notificando en tiempo real cuando un microservicio falla o experimenta alta tasa de errores.
 
 ### Prometheus Scrape
 

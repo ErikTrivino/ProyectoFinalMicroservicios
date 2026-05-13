@@ -1,0 +1,92 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: Microservicios Alert Group
+    folder: Observability
+    interval: 1m
+    rules:
+      - uid: rule-servicio-caido
+        title: Servicio Caído
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 60
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: up == 0
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: classic_conditions
+        for: 1m
+        annotations:
+          message: "El servicio ha dejado de responder al scraping de Prometheus por 1 minuto."
+        labels:
+          severity: critical
+
+      - uid: rule-alta-tasa-errores
+        title: Alta Tasa de Errores
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 120
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(rate(flask_http_request_total{code=~"5.."}[2m]) or rate(http_requests_received_total{status=~"5.."}[2m]) or rate(http_server_requests_seconds_count{status=~"5.."}[2m])) / sum(rate(flask_http_request_total[2m]) or rate(http_requests_received_total[2m]) or rate(http_server_requests_seconds_count[2m])) > 0.10
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: classic_conditions
+        for: 2m
+        annotations:
+          message: "La tasa de errores 5xx supera el 10% de forma sostenida en los últimos 2 minutos."
+        labels:
+          severity: warning

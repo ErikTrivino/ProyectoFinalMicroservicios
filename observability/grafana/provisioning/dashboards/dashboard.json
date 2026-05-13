@@ -1,89 +1,83 @@
 {
-  "id": null,
   "uid": "microservicios-observabilidad",
   "title": "Observabilidad Microservicios",
   "timezone": "browser",
-  "schemaVersion": 41,
-  "version": 1,
+  "schemaVersion": 38,
   "refresh": "15s",
   "panels": [
     {
-      "id": 1,
-      "type": "stat",
-      "title": "Servicios Activos",
-      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 6 },
-      "targets": [
-        {
-          "expr": "sum(up{job=~\"auth-service|empleados-service|departamentos-service|notificaciones-service|perfiles-service\"})",
-          "refId": "A",
-          "legendFormat": "Servicios arriba"
-        }
-      ],
-      "options": {
-        "reduceOptions": {
-          "calcs": ["lastNotNull"],
-          "fields": "A",
-          "values": true
-        },
-        "orientation": "auto",
-        "text": { "mode": "auto" }
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "none",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": 4 },
-              { "color": "orange", "value": 1 },
-              { "color": "red", "value": 0 }
-            ]
-          }
-        }
-      },
-      "alert": {
-        "uid": "service-down",
-        "name": "Servicio caído",
-        "message": "Al menos un servicio está sin scrapeo en Prometheus",
-        "conditions": [
-          {
-            "type": "query",
-            "query": { "params": ["A"] },
-            "reducer": { "type": "last", "params": [] },
-            "evaluator": { "type": "lt", "params": [4.5] },
-            "operator": { "type": "and" }
-          }
-        ],
-        "executionErrorState": "alerting",
-        "for": "1m",
-        "noDataState": "no_data",
-        "notifications": [
-          { "uid": "discord-webhook" }
-        ]
-      }
+      "type": "row",
+      "title": "1. Resumen del Sistema",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "id": 100
     },
     {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Tasa de Peticiones",
-      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 6 },
+      "id": 1,
+      "type": "stat",
+      "title": "Estado de cada servicio",
+      "gridPos": { "x": 0, "y": 1, "w": 24, "h": 6 },
       "targets": [
         {
-          "expr": "sum by (job) (rate(flask_http_request_total[5m]) or rate(http_requests_received_total[5m]) or rate(http_server_requests_seconds_count[5m]))",
+          "expr": "up",
           "refId": "A",
           "legendFormat": "{{job}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "req/s" } }
+      "options": {
+        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "orientation": "auto",
+        "textMode": "auto",
+        "colorMode": "background"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": { "color": "red", "index": 1, "text": "Caído" },
+                "1": { "color": "green", "index": 0, "text": "Activo" }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "green", "value": 1 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "row",
+      "title": "2. Comportamiento del Tráfico",
+      "gridPos": { "x": 0, "y": 7, "w": 24, "h": 1 },
+      "id": 200
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Tasa de peticiones por servicio",
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "expr": "sum by (job) (rate(flask_http_request_total[1m]) or rate(http_requests_received_total[1m]) or rate(http_server_requests_seconds_count[1m]))",
+          "refId": "A",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Latencia Promedio",
-      "gridPos": { "x": 0, "y": 6, "w": 12, "h": 6 },
+      "title": "Latencia promedio",
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (job) (rate(flask_http_request_duration_seconds_sum[5m]) / rate(flask_http_request_duration_seconds_count[5m]) or rate(http_request_duration_seconds_sum[5m]) / rate(http_request_duration_seconds_count[5m]) or rate(http_server_requests_seconds_sum[5m]) / rate(http_server_requests_seconds_count[5m]))",
+          "expr": "sum by (job) (rate(flask_http_request_duration_seconds_sum[1m]) / rate(flask_http_request_duration_seconds_count[1m]) or rate(http_request_duration_seconds_sum[1m]) / rate(http_request_duration_seconds_count[1m]) or rate(http_server_requests_seconds_sum[1m]) / rate(http_server_requests_seconds_count[1m]))",
           "refId": "A",
           "legendFormat": "{{job}}"
         }
@@ -93,58 +87,16 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Errores 4xx/5xx",
-      "gridPos": { "x": 12, "y": 6, "w": 12, "h": 6 },
+      "title": "Errores HTTP (4xx y 5xx)",
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 8 },
       "targets": [
         {
-          "expr": "sum by (job) (rate(flask_http_request_total{code=~\"4..|5..\"}[5m]) or rate(http_requests_received_total{status=~\"4..|5..\"}[5m]) or rate(http_server_requests_seconds_count{status=~\"4..|5..\"}[5m]))",
+          "expr": "sum by (status, code) (rate(flask_http_request_total{code=~\"[45]..\"}[1m]) or rate(http_requests_received_total{status=~\"[45]..\"}[1m]) or rate(http_server_requests_seconds_count{status=~\"[45]..\"}[1m]))",
           "refId": "A",
-          "legendFormat": "{{job}}"
-        },
-        {
-          "expr": "sum(rate(flask_http_request_total{code=~\"5..\"}[5m]) or rate(http_requests_received_total{status=~\"5..\"}[5m]) or rate(http_server_requests_seconds_count{status=~\"5..\"}[5m]))",
-          "refId": "B",
-          "legendFormat": "5xx total",
-          "hide": true
+          "legendFormat": "{{status}}{{code}}"
         }
       ],
-      "fieldConfig": { "defaults": { "unit": "req/s" } },
-      "alert": {
-        "uid": "high-5xx-rate",
-        "name": "Alta tasa de errores 5xx",
-        "message": "La tasa agregada de errores 5xx superó el umbral aceptable.",
-        "conditions": [
-          {
-            "type": "query",
-            "query": { "params": ["B"] },
-            "reducer": { "type": "avg", "params": [] },
-            "evaluator": { "type": "gt", "params": [0.1] },
-            "operator": { "type": "and" }
-          }
-        ],
-        "executionErrorState": "alerting",
-        "for": "5m",
-        "noDataState": "no_data",
-        "notifications": [
-          { "uid": "discord-webhook" }
-        ]
-      }
+      "fieldConfig": { "defaults": { "unit": "reqps" } }
     }
-  ],
-  "annotations": {
-    "list": [
-      {
-        "builtIn": 1,
-        "datasource": "-- Grafana --",
-        "enable": true,
-        "hide": true,
-        "iconColor": "#5f6b6d",
-        "name": "Annotations"
-      }
-    ]
-  },
-  "templating": { "list": [] },
-  "schemaVersion": 41,
-  "version": 1,
-  "links": []
+  ]
 }
