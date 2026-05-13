@@ -5,8 +5,38 @@ using Microsoft.EntityFrameworkCore;
 using NotificacionesService.Data;
 using NotificacionesService.Services;
 using Microsoft.OpenApi.Models;
+using OpenTelemetry.Trace;
+using OpenTelemetry.Resources;
+using Serilog;
+using Serilog.Formatting.Compact;
+using Prometheus;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// =========================
+// Configuración de Observabilidad
+// =========================
+Log.Logger = new LoggerConfiguration()
+    .Enrich.FromLogContext()
+    .WriteTo.Console(new CompactJsonFormatter())
+    .CreateLogger();
+builder.Host.UseSerilog();
+
+builder.Services.AddOpenTelemetry()
+    .WithTracing(tracerProviderBuilder =>
+    {
+        tracerProviderBuilder
+            .AddSource("NotificacionesService")
+            .SetResourceBuilder(ResourceBuilder.CreateDefault().AddService("notificaciones-service"))
+            .AddAspNetCoreInstrumentation()
+            .AddHttpClientInstrumentation()
+            .AddZipkinExporter(o =>
+            {
+                o.Endpoint = new Uri("http://zipkin:9411/api/v2/spans");
+            });
+    });
+
+builder.Services.AddHealthChecks();
 
 // =========================
 // Configuración de servicios
@@ -126,7 +156,10 @@ app.UseSwaggerUI(c =>
 app.UseAuthentication();
 app.UseAuthorization();
 
+app.UseMetricServer(); // Endpoint /metrics de Prometheus
+
 app.MapControllers();
+app.MapHealthChecks("/health");
 
 Console.WriteLine("[APP] Servicio de Notificaciones iniciado en puerto 8084");
 app.Run();

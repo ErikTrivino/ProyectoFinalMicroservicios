@@ -66,6 +66,12 @@ dependencies {
 
     // Validación
     implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Observabilidad: Prometheus, Tracing (OpenTelemetry + Zipkin), Logs Estructurados
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-zipkin'
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
 }
 
 tasks.named('test') {

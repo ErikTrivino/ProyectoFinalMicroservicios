@@ -35,7 +35,7 @@
 | **perfiles-service** | 8083 | Gestión de perfiles de empleados (Java/Spring Boot) |
 | **RabbitMQ** | 5672 | Message broker para eventos asíncronos |
 | **PostgreSQL (x4)** | N/A | Bases de datos independientes por servicio |
-| **Jenkins** | 9090 | Servidor de Integración Continua (Reto 6) |
+| **Jenkins** | 8090 | Servidor de Integración Continua (Reto 6) |
 | **SonarQube** | 9000 | Análisis de calidad de código (Reto 6) |
 | **Docker Registry** | 5000 | Registry local para imágenes Docker (Reto 6) |
 
@@ -439,7 +439,7 @@ La **Integración Continua (CI)** automatiza la compilación, pruebas y empaquet
 
 ```
 🐳 Docker Compose
-├── ⚙️ Jenkins (:9090)         → Servidor CI
+├── ⚙️ Jenkins (:8090)         → Servidor CI
 ├── 🔍 SonarQube (:9000)       → Calidad de código
 ├── 🗄️ Docker Registry (:5000) → Registry local de imágenes
 └── [microservicios existentes...]
@@ -449,7 +449,7 @@ La **Integración Continua (CI)** automatiza la compilación, pruebas y empaquet
 
 | Servicio | URL | Credenciales |
 |----------|-----|-------------|
-| **Jenkins** | http://localhost:9090 | `admin` / `admin123` |
+| **Jenkins** | http://localhost:8090 | `admin` / `admin123` |
 | **SonarQube** | http://localhost:9000 | `admin` / `admin` (cambiar en 1er login) |
 | **Docker Registry** | http://localhost:5000 | Sin autenticación |
 
@@ -465,7 +465,7 @@ Esto levanta todos los microservicios + Jenkins + SonarQube + Docker Registry.
 
 #### b. Obtener acceso a Jenkins
 
-Jenkins se configura automáticamente sin Setup Wizard. Acceder a http://localhost:9090 con `admin` / `admin123`.
+Jenkins se configura automáticamente sin Setup Wizard. Acceder a http://localhost:8090 con `admin` / `admin123`.
 
 #### c. Crear/importar los pipelines
 
@@ -519,7 +519,7 @@ Los pipelines se aprovisionan automáticamente via **JCasC** (Jenkins Configurat
 - 📧 Email: [tu-email@empresa.com]
 - 🔗 API Docs: `http://localhost:8082/apidocs/`
 - 📡 RabbitMQ Management: `http://localhost:15672` (admin:admin)
-- ⚙️ Jenkins CI: `http://localhost:9090` (admin:admin123)
+- ⚙️ Jenkins CI: `http://localhost:8090` (admin:admin123)
 - 🔍 SonarQube: `http://localhost:9000` (admin:admin)
 
 **Version:** 2.0.0 | **Last Updated:** Mayo 2026

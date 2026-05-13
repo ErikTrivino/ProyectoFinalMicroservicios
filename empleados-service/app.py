@@ -16,7 +16,38 @@ from functools import wraps
 
 load_dotenv()
 
+import logging
+from pythonjsonlogger import jsonlogger
+from prometheus_flask_exporter import PrometheusMetrics
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
 app = Flask(__name__)
+
+# Logs estructurados
+logger = logging.getLogger()
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
+
+# OpenTelemetry y Zipkin
+zipkin_exporter = ZipkinExporter(endpoint="http://zipkin:9411/api/v2/spans")
+provider = TracerProvider()
+provider.add_span_processor(BatchSpanProcessor(zipkin_exporter))
+trace.set_tracer_provider(provider)
+
+# Métricas Prometheus
+metrics = PrometheusMetrics(app)
+
+# Instrumentar Flask
+FlaskInstrumentor().instrument_app(app)
+RequestsInstrumentor().instrument()
 
 # ======================================================
 # CONFIGURACIÓN SWAGGER
@@ -616,4 +647,4 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=80, debug=True)
+    app.run(host='0.0.0.0', port=80)

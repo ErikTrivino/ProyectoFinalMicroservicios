@@ -26,7 +26,7 @@ La **Integración Continua (CI)** es una práctica de desarrollo de software en 
 
 ```
 🐳 Docker Compose
-├── ⚙️ Jenkins (:9090)         → Servidor CI, ejecuta pipelines
+├── ⚙️ Jenkins (:8090)         → Servidor CI, ejecuta pipelines
 ├── 🔍 SonarQube (:9000)       → Análisis de calidad de código
 ├── 🗄️ Sonar-DB                → PostgreSQL para SonarQube
 ├── 🗄️ Docker Registry (:5000) → Registry local para imágenes
@@ -103,7 +103,7 @@ git push → [Trigger] → Checkout → Build → Test → SonarQube → Quality
 - Agrega el usuario `jenkins` al grupo `docker`
 
 **`docker-compose.yml`**: Servicio Jenkins con:
-- Puerto `9090:8080` (interfaz web)
+- Puerto `8090:8080` (interfaz web)
 - Puerto `50000:50000` (comunicación con agentes)
 - Volumen para Docker socket
 - Variables de entorno para JCasC
@@ -305,7 +305,7 @@ El pipeline detecta fallos en cada etapa:
 
 | Servicio | URL | Credenciales |
 |----------|-----|-------------|
-| **Jenkins** | http://localhost:9090 | `admin` / `admin123` |
+| **Jenkins** | http://localhost:8090 | `admin` / `admin123` |
 | **SonarQube** | http://localhost:9000 | `admin` / `admin` (cambiar en 1er login) |
 | **Docker Registry** | http://localhost:5000 | Sin autenticación |
 | **RabbitMQ** | http://localhost:15672 | `admin` / `admin` |
@@ -337,7 +337,7 @@ docker-compose up --build -d
 
 ### 2. Acceder a Jenkins
 
-Abrir http://localhost:9090 en el navegador.
+Abrir http://localhost:8090 en el navegador.
 
 **Credenciales:** `admin` / `admin123`
 
