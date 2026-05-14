@@ -358,6 +358,95 @@ docker-compose up -d
 3. Revisa que el dashboard `Observabilidad Microservicios` esté disponible.
 4. Desde Grafana → Explore → Loki, pega la query LogQL anterior.
 
+--- reto 7--------------------------------------------------------------------------------------------------------------
+
+## Pruebas del Sistema: Simulación del Caos
+
+### Flujo de prueba sugerido
+
+1. Levanta el ecosistema completo:
+
+```bash
+docker-compose up --build -d
+```
+
+2. Verifica que el stack de observabilidad está activo:
+
+- Prometheus UI: `http://localhost:9090` → sección **Targets** debe mostrar todos los microservicios con estado `UP`.
+- Grafana: `http://localhost:3000` → el dashboard **Observabilidad Microservicios** debe mostrar métricas en tiempo real.
+- Zipkin: `http://localhost:9411` → busca trazas recientes.
+
+> Nota: en este repositorio se usa Zipkin como sistema de trazas. No hay servicio Jaeger definido en el `docker-compose.yml`.
+
+3. Genera tráfico para poblar las métricas:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"admin123"}' | jq -r '.data.access_token')
+
+curl -X POST http://localhost:8080/empleados \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"id":"E010","nombre":"Ana Gómez","email":"ana@empresa.com","departamentoId":"IT","fechaIngreso":"2026-05-20"}'
+
+for i in {1..10}; do
+  curl -s http://localhost:8080/empleados \
+    -H "Authorization: Bearer $TOKEN" >/dev/null
+  sleep 1
+done
+```
+
+4. Verifica la traza distribuida:
+
+- Abre Zipkin en `http://localhost:9411`.
+- Busca las trazas recientes y localiza la traza correspondiente a la creación del empleado.
+- Debe mostrar la cascada completa: `empleados-service` → `departamentos-service` → `message-broker` → `auth-service` → `notificaciones-service` → `perfiles-service`.
+
+5. Simulación de Caos – Apagar un servicio:
+
+```bash
+docker-compose stop departamentos-service
+```
+
+Espera ~2 minutos y verifica:
+
+- En Prometheus: el target `departamentos-service` pasa a estado `DOWN`.
+- En Grafana: el panel de estado del servicio cambia a rojo.
+- En el canal de alertas: debe llegar la notificación de **Servicio Caído**.
+
+6. Simulación de Caos – Inducir errores o latencia:
+
+- Introduce temporalmente un retardo artificial en el servicio elegido, por ejemplo en `departamentos-service/app.py`:
+
+```python
+import time, random
+
+if random.random() < 0.5:
+    time.sleep(5)
+```
+
+- Reconstruye y reinicia el contenedor:
+
+```bash
+docker-compose build departamentos-service
+
+docker-compose up -d departamentos-service
+```
+
+- Verifica en Grafana que el panel de latencia refleja el aumento de tiempos.
+- Si se configuró la alerta de **Alta Latencia**, debe dispararse.
+
+7. Documenta los hallazgos:
+
+- Captura de pantalla del Dashboard de Grafana con métricas reales.
+- Captura de pantalla de la vista de trazas en Zipkin mostrando la cascada completa.
+- Captura de pantalla de la alerta recibida en el canal de notificación (Discord/Telegram/Slack).
+
+### Hallazgo sugerido
+
+El servicio que tardó más en responder durante esta simulación es el que sufrió la latencia artificial, típicamente `departamentos-service`. Se identifica porque su span en Zipkin muestra el mayor tiempo de ejecución y porque el panel de latencia de Grafana reporta claramente un pico en ese servicio.
+
 ---
 
 #### GET `/empleados` - Requiere JWT

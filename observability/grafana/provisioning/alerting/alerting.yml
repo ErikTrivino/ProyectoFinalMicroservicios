@@ -8,7 +8,7 @@ contactPoints:
         type: discord
         disableResolveMessage: false
         settings:
-          url: 'https://discord.com/api/webhooks/1503957110277410869/xo9x6ijVQ1EBzv-brQLmONDBbFqDmzSeWwOaXb-WKhUr0_GXwFhO6lXnbHrHTKGs7JAS'
+          url: 'https://discord.com/api/webhooks/1504590730365108306/Y0aTc4CPTYtiHIILjxeGDoV4mUJVcfFM6yQoL92OVygbOryPJYbwe8j7_RHINF1zgfBI'
       - uid: telegram-bot
         type: telegram
         disableResolveMessage: false
