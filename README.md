@@ -380,6 +380,8 @@ docker-compose up --build -d
 
 3. Genera tráfico para poblar las métricas:
 
+bash temp_flow.sh
+
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \

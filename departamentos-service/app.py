@@ -12,6 +12,7 @@ import logging
 from pythonjsonlogger import jsonlogger
 from prometheus_flask_exporter import PrometheusMetrics
 from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.zipkin.json import ZipkinExporter
@@ -30,7 +31,9 @@ logger.setLevel(logging.INFO)
 
 # OpenTelemetry y Zipkin
 zipkin_exporter = ZipkinExporter(endpoint="http://zipkin:9411/api/v2/spans")
-provider = TracerProvider()
+service_name = os.getenv("OTEL_SERVICE_NAME", "departamentos-service")
+resource = Resource.create({"service.name": service_name})
+provider = TracerProvider(resource=resource)
 provider.add_span_processor(BatchSpanProcessor(zipkin_exporter))
 trace.set_tracer_provider(provider)
 
