@@ -8,6 +8,7 @@ from flasgger import Swagger
 import requests
 import pybreaker
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from requests.exceptions import RequestException
 import pika
 import json
@@ -26,6 +27,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.zipkin.json import ZipkinExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.propagate import inject
 
 app = Flask(__name__)
 
@@ -109,14 +111,18 @@ def publicar_evento(tipo_evento, datos_evento):
         # Declarar el exchange
         channel.exchange_declare(exchange='empleados_events', exchange_type='fanout', durable=True)
         
-        # Publicar el evento
+        trace_headers = {}
+        inject(trace_headers)
+
+        # Publicar el evento con contexto W3C para consumidores asincronos.
         channel.basic_publish(
             exchange='empleados_events',
             routing_key='',
             body=json.dumps(datos_evento),
             properties=pika.BasicProperties(
                 delivery_mode=2,  # Persistente
-                type=tipo_evento
+                type=tipo_evento,
+                headers=trace_headers
             )
         )
         
@@ -232,7 +238,8 @@ def validar_departamento(departamento_id, retries=3):
 
     for intento in range(retries):
         try:
-            future = executor.submit(llamada_con_breaker)
+            ctx = copy_context()
+            future = executor.submit(ctx.run, llamada_con_breaker)
             response = future.result()
 
             if response.status_code == 200:

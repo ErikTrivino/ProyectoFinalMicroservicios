@@ -36,6 +36,7 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.exporter.zipkin.json import ZipkinExporter
 from opentelemetry.instrumentation.flask import FlaskInstrumentor
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.propagate import extract, inject
 
 # Aplicación Flask que expone los endpoints de auth-service
 app = Flask(__name__)
@@ -55,6 +56,7 @@ resource = Resource.create({"service.name": service_name})
 provider = TracerProvider(resource=resource)
 provider.add_span_processor(BatchSpanProcessor(zipkin_exporter))
 trace.set_tracer_provider(provider)
+tracer = trace.get_tracer(__name__)
 
 # Métricas Prometheus
 metrics = PrometheusMetrics(app)
@@ -207,13 +209,16 @@ def publicar_evento(exchange, tipo_evento, datos_evento):
         connection = pika.BlockingConnection(pika.URLParameters(RABBITMQ_URL))
         channel = connection.channel()
         channel.exchange_declare(exchange=exchange, exchange_type='fanout', durable=True)
+        trace_headers = {}
+        inject(trace_headers)
         channel.basic_publish(
             exchange=exchange,
             routing_key='',
             body=json.dumps(datos_evento),
             properties=pika.BasicProperties(
                 delivery_mode=2,
-                type=tipo_evento
+                type=tipo_evento,
+                headers=trace_headers
             )
         )
         connection.close()
@@ -346,12 +351,14 @@ def start_rabbitmq():
 
             def callback(ch, method, properties, body):
                 try:
+                    parent_context = extract(properties.headers or {}) if properties else None
                     event_data = json.loads(body.decode('utf-8'))
                     event_type = event_data.get('tipo') or (properties.type if properties else None)
-                    if event_type == 'empleado.creado':
-                        procesar_evento_empleado_creado(event_data)
-                    elif event_type == 'empleado.eliminado':
-                        procesar_evento_empleado_eliminado(event_data)
+                    with tracer.start_as_current_span(f"rabbitmq consume {event_type}", context=parent_context):
+                        if event_type == 'empleado.creado':
+                            procesar_evento_empleado_creado(event_data)
+                        elif event_type == 'empleado.eliminado':
+                            procesar_evento_empleado_eliminado(event_data)
                 except Exception as err:
                     print(f'Error procesando evento RabbitMQ: {err}')
                 finally:

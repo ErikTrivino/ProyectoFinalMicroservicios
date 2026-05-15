@@ -5,6 +5,7 @@ using RabbitMQ.Client.Events;
 using NotificacionesService.Data;
 using NotificacionesService.DTOs;
 using NotificacionesService.Models;
+using System.Diagnostics;
 
 namespace NotificacionesService.Services;
 
@@ -14,6 +15,7 @@ namespace NotificacionesService.Services;
 /// </summary>
 public class RabbitMQConsumerService : BackgroundService
 {
+    private static readonly ActivitySource ActivitySource = new("NotificacionesService");
     private readonly ILogger<RabbitMQConsumerService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
@@ -140,6 +142,8 @@ public class RabbitMQConsumerService : BackgroundService
 
             _logger.LogInformation("[EVENTO] Recibido {Type}: {Json}", eventType ?? "DESCONOCIDO", json);
 
+            using var activity = StartConsumerActivity(ea, eventType);
+
             switch (eventType)
             {
                 case "empleado.creado":
@@ -165,6 +169,50 @@ public class RabbitMQConsumerService : BackgroundService
             // Nack con requeue true para reintentar si es error transitorio
             await _channel!.BasicNackAsync(ea.DeliveryTag, false, true);
         }
+    }
+
+    private static Activity? StartConsumerActivity(BasicDeliverEventArgs ea, string? eventType)
+    {
+        var parentContext = ExtractParentContext(ea);
+        var activityName = $"rabbitmq consume {eventType ?? "desconocido"}";
+        return parentContext == default
+            ? ActivitySource.StartActivity(activityName, ActivityKind.Consumer)
+            : ActivitySource.StartActivity(activityName, ActivityKind.Consumer, parentContext);
+    }
+
+    private static ActivityContext ExtractParentContext(BasicDeliverEventArgs ea)
+    {
+        var headers = ea.BasicProperties.Headers;
+        if (headers == null || !headers.TryGetValue("traceparent", out var traceparentValue))
+        {
+            return default;
+        }
+
+        var traceparent = HeaderToString(traceparentValue);
+        if (string.IsNullOrWhiteSpace(traceparent))
+        {
+            return default;
+        }
+
+        var tracestate = headers.TryGetValue("tracestate", out var tracestateValue)
+            ? HeaderToString(tracestateValue)
+            : null;
+
+        return ActivityContext.TryParse(traceparent, tracestate, out var context)
+            ? context
+            : default;
+    }
+
+    private static string? HeaderToString(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            ReadOnlyMemory<byte> bytes => Encoding.UTF8.GetString(bytes.Span),
+            string text => text,
+            _ => value.ToString()
+        };
     }
 
     private async Task ProcesarEmpleadoCreado(string json)
