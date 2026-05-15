@@ -300,7 +300,7 @@ El sistema cuenta con alertas proactivas configuradas en Grafana (Unified Alerti
 
 ### Prometheus Scrape
 
-Los servicios están configurados en `observability/prometheus.yml` con estos jobs:
+Los servicios estan configurados en `observability/prometheus/prometheus.yml` con estos jobs:
 
 - `auth-service`
 - `empleados-service`
@@ -417,6 +417,36 @@ flowchart TD
 | **Zipkin** | Trazas distribuidas (W3C Trace Context) | Análisis de latencia |
 | **Promtail** | Recolector de logs desde Docker | Push de logs a Loki |
 
+### Conceptos solicitados
+
+**Pull vs Push.** Prometheus trabaja con un modelo **Pull**: consulta periodicamente los endpoints `/metrics` de cada microservicio usando los nombres internos de Docker (`auth-service`, `empleados-service`, etc.). Las trazas y logs usan **Push**: los servicios envian spans a Zipkin y Promtail envia logs de contenedores a Loki.
+
+**OpenTelemetry.** Es el estandar usado para instrumentar trazas. En este proyecto cada servicio define `service.name`, instrumenta HTTP y exporta spans hacia `http://zipkin:9411/api/v2/spans` dentro de la red Docker.
+
+**W3C Trace Context.** La propagacion de contexto via headers como `traceparent` permite correlacionar una peticion entre servicios. En el flujo de creacion de empleado, la solicitud pasa por `empleados-service`, valida `departamentos-service` y dispara eventos que luego procesan `auth-service`, `notificaciones-service` y `perfiles-service`.
+
+### Instrumentacion por microservicio
+
+| Servicio | Metricas | Trazabilidad | Logs |
+|----------|----------|--------------|------|
+| `auth-service` | `prometheus-flask-exporter` en `/metrics` | OpenTelemetry Flask/Requests + Zipkin | `python-json-logger` |
+| `empleados-service` | `prometheus-flask-exporter` en `/metrics` | OpenTelemetry Flask/Requests + Zipkin | `python-json-logger` |
+| `departamentos-service` | `prometheus-flask-exporter` en `/metrics` | OpenTelemetry Flask/Requests + Zipkin | `python-json-logger` |
+| `notificaciones-service` | `prometheus-net.AspNetCore` en `/metrics` | OpenTelemetry ASP.NET Core/HTTP + Zipkin | Serilog JSON |
+| `perfiles-service` | Spring Actuator + Micrometer Prometheus en `/actuator/prometheus` | Micrometer Tracing + OpenTelemetry bridge + Zipkin | Logback JSON |
+
+### Eleccion de Zipkin
+
+Se eligio **Zipkin** porque es liviano, se integra directamente con OpenTelemetry/Micrometer, requiere poca configuracion en Docker Compose y es suficiente para visualizar cascadas de spans en el taller. Jaeger tambien seria valido, pero Zipkin reduce complejidad operativa para un entorno academico local.
+
+### Archivos versionados de observabilidad
+
+- `observability/prometheus/prometheus.yml`: targets de Prometheus usando nombres de red Docker.
+- `observability/grafana/provisioning/datasources/datasource.yml`: fuentes Prometheus, Loki y Zipkin.
+- `observability/grafana/provisioning/dashboards/dashboard.json`: dashboard aprovisionado automaticamente.
+- `observability/grafana/provisioning/alerting/`: reglas, politicas y contact points de alertas.
+- `observability/promtail-config.yml`: descubrimiento de contenedores Docker y envio de logs a Loki.
+
 ---
 
 ## Pruebas del Sistema: Simulación del Caos
@@ -444,12 +474,20 @@ bash temp_flow.sh
 ```bash
 TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | jq -r '.data.access_token')
+  -d '{"username":"admin","password":"admin123"}' | python -c 'import sys,json; print(json.load(sys.stdin)["data"]["access_token"])')
 
-curl -X POST http://localhost:8080/empleados \
+CEDULA="E$(date +%s)"
+EMAIL="ana.${CEDULA}@empresa.com"
+
+curl -s -X POST http://localhost:8086/departamentos \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"id":"E010","nombre":"Ana Gómez","email":"ana@empresa.com","departamentoId":"IT","fechaIngreso":"2026-05-20"}'
+  -d '{"id":"IT","nombre":"Tecnologia","descripcion":"Departamento de TI"}' >/dev/null
+
+curl -s -X POST http://localhost:8080/empleados \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"cedula\":\"$CEDULA\",\"nombre\":\"Ana Gomez\",\"email\":\"$EMAIL\",\"departamentoId\":\"IT\",\"fechaIngreso\":\"2026-05-20\"}"
 
 for i in {1..10}; do
   curl -s http://localhost:8080/empleados \
@@ -461,10 +499,18 @@ done
 4. Verifica la traza distribuida:
 
 - Abre Zipkin en `http://localhost:9411`.
-- Busca las trazas recientes y localiza la traza correspondiente a la creación del empleado.
-- Debe mostrar la cascada completa: `empleados-service` → `departamentos-service` → `message-broker` → `auth-service` → `notificaciones-service` → `perfiles-service`.
+- En **Service Name**, selecciona `empleados-service` y busca trazas recientes.
+- Abre la traza correspondiente al `POST /empleados`.
+- En este proyecto no hay API Gateway definido; por eso la cascada inicia en `empleados-service`.
+- La traza debe evidenciar al menos `empleados-service` -> `departamentos-service`. Los pasos asincronos por RabbitMQ se verifican adicionalmente con logs/eventos de `auth-service`, `notificaciones-service` y `perfiles-service`.
 
-5. Simulación de Caos – Apagar un servicio:
+```bash
+docker-compose logs --tail=100 auth-service
+docker-compose logs --tail=100 notificaciones-service
+docker-compose logs --tail=100 perfiles-service
+```
+
+5. Simulacion de Caos - Apagar un servicio:
 
 ```bash
 docker-compose stop departamentos-service
@@ -474,11 +520,17 @@ Espera ~2 minutos y verifica:
 
 - En Prometheus: el target `departamentos-service` pasa a estado `DOWN`.
 - En Grafana: el panel de estado del servicio cambia a rojo.
-- En el canal de alertas: debe llegar la notificación de **Servicio Caído**.
+- En el canal de alertas: debe llegar la notificacion de **Servicio Caido**.
 
-6. Simulación de Caos – Inducir errores o latencia:
+Para restaurarlo:
 
-- Introduce temporalmente un retardo artificial en el servicio elegido, por ejemplo en `departamentos-service/app.py`:
+```bash
+docker-compose up -d departamentos-service
+```
+
+6. Simulacion de Caos - Inducir latencia:
+
+- `departamentos-service` incluye un interruptor de caos por variable de entorno. Cuando `CHAOS_LATENCY_ENABLED=true`, el endpoint `GET /departamentos/{id}` introduce 5 segundos de latencia en aproximadamente el 50% de las consultas.
 
 ```python
 import time, random
@@ -487,22 +539,53 @@ if random.random() < 0.5:
     time.sleep(5)
 ```
 
-- Reconstruye y reinicia el contenedor:
+- Activa la latencia artificial y genera trafico:
 
 ```bash
-docker-compose build departamentos-service
-
-docker-compose up -d departamentos-service
+CHAOS_LATENCY_ENABLED=true docker-compose up -d --build departamentos-service
+bash temp_flow.sh
 ```
 
 - Verifica en Grafana que el panel de latencia refleja el aumento de tiempos.
-- Si se configuró la alerta de **Alta Latencia**, debe dispararse.
+- Si se configura una alerta de **Alta Latencia**, debe dispararse.
+
+Para desactivar la simulacion:
+
+```bash
+CHAOS_LATENCY_ENABLED=false docker-compose up -d --build departamentos-service
+```
 
 7. Documenta los hallazgos:
 
-- Captura de pantalla del Dashboard de Grafana con métricas reales.
+- Captura de pantalla del Dashboard de Grafana con metricas reales.
+
+![rafana-dashboard](grafana-dashboard.png)
+
+
 - Captura de pantalla de la vista de trazas en Zipkin mostrando la cascada completa.
-- Captura de pantalla de la alerta recibida en el canal de notificación (Discord/Telegram/Slack).
+
+![zipkin-trace](ipkin-trace-1.png)
+- Captura de pantalla de la alerta recibida en el canal de notificacion (Discord/Telegram/Slack/email).
+
+![alerta-servicio-caido](alerta-servicio-caido.png)
+
+![prometheus-down](rometheus-down.png)
+
+Rutas sugeridas para versionar evidencias:
+
+- `docs/evidencias/grafana-dashboard.png`
+- `docs/evidencias/zipkin-trace.png`
+- `docs/evidencias/alerta-servicio-caido.png`
+- `docs/evidencias/prometheus-down.png`
+
+### Canal de alertas
+
+Grafana Unified Alerting esta aprovisionado desde `observability/grafana/provisioning/alerting/`. Las reglas configuradas son:
+
+- **Servicio caido:** se dispara cuando al menos un target queda con `up == 0` durante 1 minuto.
+- **Alta tasa de errores:** se dispara cuando los errores 5xx superan el 10% del trafico durante 2 minutos.
+
+El canal externo se define como contact point en Grafana. Para la entrega, se debe evidenciar al menos una notificacion recibida en Discord, Telegram, Slack o email.
 
 ### Análisis Fundamentado: ¿Qué servicio tardó más en responder?
 
@@ -583,7 +666,7 @@ RESPONSE=$(curl -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
   -d '{"username":"maria","password":"MyPass123"}')
 
-TOKEN=$(echo $RESPONSE | jq -r '.data.access_token')
+TOKEN=$(echo "$RESPONSE" | python -c 'import sys,json; print(json.load(sys.stdin)["data"]["access_token"])')
 
 # 2️⃣ Usar token
 curl -X GET http://localhost:8080/empleados \

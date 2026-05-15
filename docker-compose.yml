@@ -237,6 +237,7 @@ services:
       DB_PASSWORD: departamentos_pass
       JWT_SECRET: supersecretosupersecretosupersecreto
       JWT_ALGORITHM: HS256
+      CHAOS_LATENCY_ENABLED: ${CHAOS_LATENCY_ENABLED:-false}
     depends_on:
       database-departamentos:
         condition: service_healthy
@@ -375,7 +376,7 @@ services:
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     ports:
       - "9090:9090"
     networks:

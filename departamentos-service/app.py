@@ -1,6 +1,8 @@
 from flask import Flask, request, jsonify, g
 import psycopg2
 import os
+import random
+import time
 from dotenv import load_dotenv
 from flasgger import Swagger, swag_from
 import jwt
@@ -215,6 +217,9 @@ def registrar_departamento():
 })
 @requerir_rol('USER', 'ADMIN')
 def obtener_departamento(id):
+    if os.getenv("CHAOS_LATENCY_ENABLED", "false").lower() == "true" and random.random() < 0.5:
+        time.sleep(5)
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -236,6 +241,9 @@ def obtener_departamento(id):
         "descripcion": row[2]
     })
 
+# Ejemplo en Python: latencia artificial para la simulacion de caos.
+if random.random() < 0.5:
+    time.sleep(5)  # Latencia artificial
 # ======================================================
 # GET /departamentos (Listado paginado)
 # ======================================================

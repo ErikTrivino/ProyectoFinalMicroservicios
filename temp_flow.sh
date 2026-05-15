@@ -1,13 +1,32 @@
 #!/usr/bin/env bash
+set -e
+
 TOKEN=$(curl -s -X POST http://localhost:8082/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"admin123"}' | python -c 'import sys, json; print(json.load(sys.stdin)["data"]["access_token"])')
-echo "TOKEN=$TOKEN"
+  -d '{"username":"admin","password":"admin123"}' | python -c 'import sys,json; print(json.load(sys.stdin)["data"]["access_token"])')
 
-curl -X POST http://localhost:8080/empleados \
+if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
+  echo "No se pudo obtener el token ADMIN. Revisa que auth-service este activo en http://localhost:8082"
+  exit 1
+fi
+
+echo "Token ADMIN obtenido."
+
+CEDULA="E$(date +%s)"
+EMAIL="ana.${CEDULA}@empresa.com"
+
+curl -s -X POST http://localhost:8086/departamentos \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer $TOKEN" \
-  -d '{"cedula":"E010","nombre":"Ana Gómez","email":"ana@empresa.com","departamentoId":"IT","fechaIngreso":"2026-05-20"}'
+  -d '{"id":"IT","nombre":"Tecnologia","descripcion":"Departamento de TI"}' >/dev/null
+
+curl -s -X POST http://localhost:8080/empleados \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"cedula\":\"$CEDULA\",\"nombre\":\"Ana Gomez\",\"email\":\"$EMAIL\",\"departamentoId\":\"IT\",\"fechaIngreso\":\"2026-05-20\"}"
+
+echo
+echo "Empleado solicitado: cedula=$CEDULA email=$EMAIL"
 
 for i in {1..10}; do
   curl -s http://localhost:8080/empleados \
@@ -15,4 +34,4 @@ for i in {1..10}; do
   sleep 1
 done
 
-echo Done
+echo "Trafico generado para metricas y trazas."
