@@ -6,8 +6,8 @@ groups:
     interval: 1m
     rules:
       - uid: rule-servicio-caido
-        title: "🔴 Crítico: Microservicio Sin Respuesta"
-        condition: A
+        title: "Critico: Microservicio sin respuesta"
+        condition: C
         data:
           - refId: A
             relativeTimeRange:
@@ -15,20 +15,44 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: count(up == 0) > 0
+              expr: count(up == 0)
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+                  type: query
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: classic_conditions
         for: 1m
         noDataState: OK
         execErrState: Error
         annotations:
-          message: "🚨 ALERTA CRÍTICA: Uno o más microservicios no responden a Prometheus.\n\n📋 Detalles:\n- Estado: No disponible\n- Duración: +1 minuto\n\n🔧 Acciones recomendadas:\n1. Verifica el estado de los contenedores: `docker ps`\n2. Revisa los logs: `docker logs [nombre-servicio]`\n3. Reinicia el servicio si es necesario\n4. Consulta Prometheus para identificar qué servicio falla"
+          summary: "Uno o mas microservicios no responden a Prometheus."
+          message: "ALERTA CRITICA: Prometheus detecto uno o mas microservicios caidos.\n\nQue significa:\n- La metrica `up` esta en 0 para al menos un target.\n- La condicion se mantuvo durante 1 minuto.\n- El valor de la alerta representa la cantidad de targets caidos.\n\nComo identificar el servicio:\n1. Abre Prometheus: http://localhost:9090/targets\n2. Busca el target marcado como DOWN.\n3. Revisa contenedores: docker-compose ps\n4. Revisa logs: docker-compose logs --tail=100 <servicio>\n5. Reinicia si aplica: docker-compose up -d <servicio>"
         labels:
           severity: critical
 
       - uid: rule-alta-tasa-errores
-        title: "⚠️ Advertencia: Tasa de Errores Elevada"
+        title: "Advertencia: Tasa de errores elevada"
         condition: C
         data:
           - refId: A
@@ -68,6 +92,7 @@ groups:
         noDataState: OK
         execErrState: Error
         annotations:
-          message: "⚠️ ADVERTENCIA: Los microservicios están retornando demasiados errores.\n\n📊 Métrica:\n- Errores 5xx: >10% del tráfico\n- Duración: 2+ minutos\n\n🔍 Investigación:\n1. Abre Grafana y revisa el dashboard de Observabilidad\n2. Identifica qué servicio está generando errores\n3. Consulta los logs estructurados en Loki\n4. Verifica la disponibilidad de dependencias (BD, APIs externas)"
+          summary: "La tasa de errores 5xx supera el umbral configurado."
+          message: "ADVERTENCIA: Los microservicios estan retornando demasiados errores.\n\nQue significa:\n- Los errores HTTP 5xx superan el 10% del trafico.\n- La condicion se mantuvo durante 2 minutos.\n\nComo investigar:\n1. Abre Grafana y revisa el dashboard de Observabilidad.\n2. Identifica que servicio esta generando errores.\n3. Consulta logs estructurados en Loki.\n4. Verifica dependencias como bases de datos, RabbitMQ o servicios externos."
         labels:
           severity: warning
