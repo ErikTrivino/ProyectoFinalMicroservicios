@@ -6,7 +6,7 @@ groups:
     interval: 1m
     rules:
       - uid: rule-servicio-caido
-        title: Servicio Caído
+        title: "🔴 Crítico: Microservicio Sin Respuesta"
         condition: A
         data:
           - refId: A
@@ -23,12 +23,12 @@ groups:
         noDataState: OK
         execErrState: Error
         annotations:
-          message: "El servicio ha dejado de responder al scraping de Prometheus por 1 minuto."
+          message: "🚨 ALERTA CRÍTICA: Uno o más microservicios no responden a Prometheus.\n\n📋 Detalles:\n- Estado: No disponible\n- Duración: +1 minuto\n\n🔧 Acciones recomendadas:\n1. Verifica el estado de los contenedores: `docker ps`\n2. Revisa los logs: `docker logs [nombre-servicio]`\n3. Reinicia el servicio si es necesario\n4. Consulta Prometheus para identificar qué servicio falla"
         labels:
           severity: critical
 
       - uid: rule-alta-tasa-errores
-        title: Alta Tasa de Errores
+        title: "⚠️ Advertencia: Tasa de Errores Elevada"
         condition: C
         data:
           - refId: A
@@ -68,6 +68,6 @@ groups:
         noDataState: OK
         execErrState: Error
         annotations:
-          message: "La tasa de errores 5xx supera el 10% de forma sostenida en los últimos 2 minutos."
+          message: "⚠️ ADVERTENCIA: Los microservicios están retornando demasiados errores.\n\n📊 Métrica:\n- Errores 5xx: >10% del tráfico\n- Duración: 2+ minutos\n\n🔍 Investigación:\n1. Abre Grafana y revisa el dashboard de Observabilidad\n2. Identifica qué servicio está generando errores\n3. Consulta los logs estructurados en Loki\n4. Verifica la disponibilidad de dependencias (BD, APIs externas)"
         labels:
           severity: warning

@@ -358,7 +358,66 @@ docker-compose up -d
 3. Revisa que el dashboard `Observabilidad Microservicios` esté disponible.
 4. Desde Grafana → Explore → Loki, pega la query LogQL anterior.
 
---- reto 7--------------------------------------------------------------------------------------------------------------
+--- reto 7------------------------------------------------------------------------------------------
+
+## 📊 Arquitectura de Observabilidad
+
+### Diagrama de Flujo
+
+```mermaid
+flowchart TD
+    subgraph "Microservicios"
+        AS["🔐 auth-service:80/metrics"]
+        ES["👥 empleados-service:80/metrics"]
+        DS["🏢 departamentos-service:8081/metrics"]
+        NS["📧 notificaciones-service:8084/metrics"]
+        PS["📋 perfiles-service:8083/actuator/prometheus"]
+    end
+
+    subgraph "Stack Observabilidad"
+        PROM["📊 Prometheus:9090"]
+        GRAF["📈 Grafana:3000"]
+        LOKI["📂 Loki:3100"]
+        ZIP["🔍 Zipkin:9411"]
+    end
+
+    subgraph "Soporte"
+        PT["📋 Promtail"]
+        MB["🐰 RabbitMQ:5672"]
+    end
+
+    AS & ES & DS & NS & PS -->|Pull /metrics| PROM
+    AS & ES & DS & NS & PS -->|Push OTel/Spans| ZIP
+    AS & ES & DS & NS & PS -->|Emit Logs| PT
+    PT -->|Push LogQL| LOKI
+    
+    PROM -->|PromQL| GRAF
+    LOKI -->|LogQL| GRAF
+    ZIP -->|Traces UI| GRAF
+    
+    GRAF -->|Rules/Alerts| MB
+    MB -->|Notificaciones| CHAT["💬 Discord/Telegram/Slack"]
+
+    classDef service fill:#4A90E2,stroke:#2E5C8A,color:#fff
+    classDef observ fill:#50C878,stroke:#2D7A4F,color:#fff
+    classDef support fill:#FFB84D,stroke:#C68A3D,color:#000
+    
+    class AS,ES,DS,NS,PS service
+    class PROM,GRAF,LOKI,ZIP observ
+    class PT,MB support
+```
+
+### Conceptos Clave
+
+| Componente | Propósito | Tipo |
+|------------|-----------|------|
+| **Prometheus** | Scraping de métricas (Pull) | Almacenamiento de series temporales |
+| **Grafana** | Visualización de métricas, logs y trazas | Dashboard + Alertas |
+| **Loki** | Almacenamiento de logs estructurados | Query engine (LogQL) |
+| **Zipkin** | Trazas distribuidas (W3C Trace Context) | Análisis de latencia |
+| **Promtail** | Recolector de logs desde Docker | Push de logs a Loki |
+
+---
 
 ## Pruebas del Sistema: Simulación del Caos
 
@@ -445,9 +504,39 @@ docker-compose up -d departamentos-service
 - Captura de pantalla de la vista de trazas en Zipkin mostrando la cascada completa.
 - Captura de pantalla de la alerta recibida en el canal de notificación (Discord/Telegram/Slack).
 
-### Hallazgo sugerido
+### Análisis Fundamentado: ¿Qué servicio tardó más en responder?
 
-El servicio que tardó más en responder durante esta simulación es el que sufrió la latencia artificial, típicamente `departamentos-service`. Se identifica porque su span en Zipkin muestra el mayor tiempo de ejecución y porque el panel de latencia de Grafana reporta claramente un pico en ese servicio.
+**Hallazgo:** El servicio que experimenta mayor latencia durante la simulación es identificable mediante dos técnicas de observabilidad complementarias:
+
+#### 1️⃣ **Métrica Cuantitativa en Grafana**
+- Panel "Latencia promedio" muestra la distribución de tiempos por servicio
+- Query PromQL: `sum by (job) (rate(flask_http_request_duration_seconds_sum[1m]) / rate(flask_http_request_duration_seconds_count[1m]))`
+- **Hallazgo visual:** Una línea en el gráfico muestra un "spike" claramente distinguible, indicando que ese servicio (típicamente `departamentos-service` si se introdujo el `time.sleep(5)`) tiene latencia significativamente mayor
+
+#### 2️⃣ **Trazas Distribuidas en Zipkin**
+- Al buscar una traza en http://localhost:9411, se visualiza la cascada de spans:
+  ```
+  POST /empleados (root span) ...................... 5.100 ms total
+    └─ SELECT departamentos ............. 5.050 ms ⚠️ (CUELLO DE BOTELLA)
+    └─ Emit evento RabbitMQ ................. 10 ms
+    └─ Logs JSON en Loki .................... 5 ms
+  ```
+- El span del servicio lento ocupa la mayor parte del tiempo total de la transacción
+- W3C Trace Context (`traceparent` header) propaga este contexto a través de toda la cadena de microservicios
+
+#### 3️⃣ **Correlación en Loki**
+- Logs estructurados en JSON permiten buscar:
+  ```logql
+  {service="departamentos-service"} | json | duration > 5000
+  ```
+- Confirma que el servicio específico generó latencia extremadamente larga
+
+**Conclusión:** La combinación de métricas (Prometheus/Grafana), trazas distribuidas (Zipkin) y logs centralizados (Loki) proporciona una visión de 360° que:
+1. **Identifica** qué servicio es lento (visualmente en Grafana)
+2. **Cuantifica** exactamente dónde se consume el tiempo (span breakdown en Zipkin)
+3. **Correlaciona** con contexto de negocio (logs JSON en Loki)
+
+Esta es la esencia de la observabilidad moderna: no solo saber QUE algo pasó, sino DÓNDE y POR QUÉ en el contexto distribuido.
 
 ---
 
