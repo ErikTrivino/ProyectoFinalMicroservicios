@@ -156,6 +156,12 @@ public class RabbitMQConsumerService : BackgroundService
                 case "usuario.recuperacion":
                     await ProcesarUsuarioSeguridad(json);
                     break;
+                case "vacaciones.programadas":
+                    await ProcesarVacacionesProgramadas(json);
+                    break;
+                case "empleado.estado.cambiado":
+                    await ProcesarEmpleadoEstadoCambiado(json);
+                    break;
                 default:
                     _logger.LogWarning("[EVENTO] Tipo de evento no soportado: {Type}", eventType);
                     break;
@@ -169,6 +175,18 @@ public class RabbitMQConsumerService : BackgroundService
             // Nack con requeue true para reintentar si es error transitorio
             await _channel!.BasicNackAsync(ea.DeliveryTag, false, true);
         }
+    }
+
+    private async Task ProcesarVacacionesProgramadas(string json)
+    {
+        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas recibidas: {Json}", json);
+        await Task.CompletedTask;
+    }
+
+    private async Task ProcesarEmpleadoEstadoCambiado(string json)
+    {
+        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado recibido: {Json}", json);
+        await Task.CompletedTask;
     }
 
     private static Activity? StartConsumerActivity(BasicDeliverEventArgs ea, string? eventType)

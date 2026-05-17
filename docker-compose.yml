@@ -14,6 +14,7 @@ volumes:
   auth-db-data:
   notificaciones-db-data:
   perfiles-db-data:
+  vacaciones-db-data:
   # Reto 6 - CI/CD
   jenkins_data:
   sonarqube_data:
@@ -368,6 +369,55 @@ services:
       - checkin-net
     ports:
       - "8083:8083"
+
+  # ==================================================
+  # BASE DE DATOS - VACACIONES
+  # ==================================================
+  database-vacaciones:
+    image: postgres:16
+    container_name: database-vacaciones
+    environment:
+      POSTGRES_DB: vacaciones_db
+      POSTGRES_USER: vacaciones_user
+      POSTGRES_PASSWORD: vacaciones_pass
+    volumes:
+      - vacaciones-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5441:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vacaciones_user -d vacaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - VACACIONES (Node.js)
+  # ==================================================
+  vacaciones-service:
+    build: ./vacaciones-service
+    container_name: vacaciones-service
+    environment:
+      DB_HOST: database-vacaciones
+      DB_PORT: 5432
+      DB_NAME: vacaciones_db
+      DB_USER: vacaciones_user
+      DB_PASSWORD: vacaciones_pass
+      RABBITMQ_HOST: message-broker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+    depends_on:
+      database-vacaciones:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8085:80"
 
   # ==================================================
   # OBSERVABILIDAD

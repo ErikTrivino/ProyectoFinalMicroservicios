@@ -311,6 +311,11 @@ def registrar_empleado():
               type: string
               format: date
               example: "2024-01-01"
+            estado:
+              type: string
+              enum: ["ACTIVO", "EN_VACACIONES", "RETIRADO"]
+              default: "ACTIVO"
+              example: "ACTIVO"
             password:
               type: string
               description: "Contraseña inicial opcional para el usuario asociado"
@@ -356,16 +361,21 @@ def registrar_empleado():
 
         emp_id = str(uuid.uuid4())
 
+        estado = data.get('estado', 'ACTIVO')
+        if estado not in ['ACTIVO', 'EN_VACACIONES', 'RETIRADO']:
+            return respuesta_error("Estado inválido. Valores permitidos: ACTIVO, EN_VACACIONES, RETIRADO", 400)
+
         cur.execute("""
-            INSERT INTO empleados (id, cedula, nombre, email, departamento_id, fecha_ingreso)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO empleados (id, cedula, nombre, email, departamento_id, fecha_ingreso, estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             emp_id,
             data['cedula'],
             data['nombre'],
             data['email'],
             data['departamentoId'],
-            data['fechaIngreso']
+            data['fechaIngreso'],
+            estado
         ))
 
         conn.commit()
@@ -377,7 +387,8 @@ def registrar_empleado():
             'nombre': data['nombre'],
             'email': data['email'],
             'departamentoId': data['departamentoId'],
-            'fechaIngreso': data['fechaIngreso']
+            'fechaIngreso': data['fechaIngreso'],
+            'estado': estado
         }
         if 'password' in data and data['password']:
             event_data['password'] = data['password']
@@ -427,7 +438,7 @@ def obtener_empleado(id):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso
+        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
         FROM empleados WHERE id=%s
     """, (id,))
 
@@ -444,7 +455,8 @@ def obtener_empleado(id):
         "nombre": row[2],
         "email": row[3],
         "departamentoId": row[4],
-        "fechaIngreso": row[5].isoformat()
+        "fechaIngreso": row[5].isoformat(),
+        "estado": row[6]
     })
 
 # ======================================================
@@ -480,7 +492,7 @@ def eliminar_empleado(id):
     try:
         # Verificar que el empleado existe y obtener sus datos
         cur.execute("""
-            SELECT cedula, nombre, email, departamento_id, fecha_ingreso
+            SELECT cedula, nombre, email, departamento_id, fecha_ingreso, estado
             FROM empleados WHERE id=%s
         """, (id,))
         
@@ -495,7 +507,8 @@ def eliminar_empleado(id):
             'nombre': row[1],
             'email': row[2],
             'departamentoId': row[3],
-            'fechaIngreso': row[4].isoformat()
+            'fechaIngreso': row[4].isoformat(),
+            'estado': row[5]
         }
         
         # Eliminar el empleado
@@ -561,7 +574,7 @@ def listar_empleados():
         total_items = cur.fetchone()[0]
 
         cur.execute("""
-            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
             FROM empleados
             ORDER BY id
             LIMIT %s OFFSET %s
@@ -573,7 +586,8 @@ def listar_empleados():
             "nombre": r[2],
             "email": r[3],
             "departamentoId": r[4],
-            "fechaIngreso": r[5].isoformat()
+            "fechaIngreso": r[5].isoformat(),
+            "estado": r[6]
         } for r in cur.fetchall()]
 
         total_pages = (total_items + size - 1) // size
@@ -612,7 +626,8 @@ def init_db():
             nombre VARCHAR(100) NOT NULL,
             email VARCHAR(100) NOT NULL,
             departamento_id VARCHAR(20) NOT NULL,
-            fecha_ingreso DATE NOT NULL
+            fecha_ingreso DATE NOT NULL,
+            estado VARCHAR(20) DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'EN_VACACIONES', 'RETIRADO'))
         );
     """)
     conn.commit()
@@ -620,9 +635,61 @@ def init_db():
     conn.close()
 
 # ======================================================
+# CONSUMIDOR DE EVENTOS (RabbitMQ)
+# ======================================================
+
+def iniciar_consumidor():
+    def callback(ch, method, properties, body):
+        try:
+            datos = json.loads(body)
+            tipo = datos.get('tipo')
+            if tipo == 'empleado.estado.cambiado':
+                emp_id = datos.get('empleado_id')
+                nuevo_estado = datos.get('nuevoEstado')
+                
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("UPDATE empleados SET estado=%s WHERE id=%s", (nuevo_estado, emp_id))
+                conn.commit()
+                cur.close()
+                conn.close()
+                print(f"[CONSUMER] Estado de empleado {emp_id} actualizado a {nuevo_estado}")
+            
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        except Exception as e:
+            print(f"[CONSUMER] Error procesando mensaje: {str(e)}")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+
+    try:
+        connection = get_rabbitmq_connection()
+        channel = connection.channel()
+        
+        # Declarar el exchange (debe coincidir)
+        channel.exchange_declare(exchange='empleados_events', exchange_type='fanout', durable=True)
+        
+        # Cola exclusiva para este consumidor
+        result = channel.queue_declare(queue='', exclusive=True)
+        queue_name = result.method.queue
+        
+        channel.queue_bind(exchange='empleados_events', queue=queue_name)
+        
+        channel.basic_consume(queue=queue_name, on_message_callback=callback)
+        print("[CONSUMER] Escuchando eventos en empleados_events...")
+        channel.start_consuming()
+    except Exception as e:
+        print(f"[CONSUMER] Error en el consumidor: {str(e)}")
+
+# ======================================================
 # MAIN
 # ======================================================
 
 if __name__ == '__main__':
     init_db()
+    
+    # Iniciar consumidor en un hilo separado
+    import threading
+    t = threading.Thread(target=iniciar_consumidor)
+    t.daemon = True
+    t.start()
+    
     app.run(host='0.0.0.0', port=80)
