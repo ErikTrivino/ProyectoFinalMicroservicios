@@ -63,7 +63,7 @@ public class PerfilController {
     }
 
     @PutMapping("/{empleadoId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('USER')")
     @Operation(summary = "Actualizar perfil de un empleado")
     public ResponseEntity<Map<String, Object>> actualizarPerfil(
             @PathVariable String empleadoId,

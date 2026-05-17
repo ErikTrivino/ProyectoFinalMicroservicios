@@ -449,12 +449,12 @@ def login():
     if not user:
         return respuesta_error("Credenciales inválidas", 401)
 
-    _, username, email, password_hash, role, active, _ = user
+    _, username, email, password_hash, role, active, empleado_id = user
     if not active or not password_hash or not check_password(password, password_hash):
         return respuesta_error("Credenciales inválidas", 401)
 
     access_token = crear_token(
-        {"sub": username, "role": role, "type": "ACCESS"},
+        {"sub": username, "role": role, "type": "ACCESS", "empleadoId": empleado_id},
         datetime.timedelta(minutes=ACCESS_EXPIRE_MINUTES)
     )
 
@@ -464,6 +464,49 @@ def login():
         "expires_in": ACCESS_EXPIRE_MINUTES * 60,
         "role": role
     }, 200)
+
+
+@app.route('/auth/change-password', methods=['POST'])
+def change_password():
+    data = request.get_json()
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header.startswith('Bearer '):
+        return respuesta_error("Authorization header missing or malformed", 401)
+    if not data or 'currentPassword' not in data or 'newPassword' not in data:
+        return respuesta_error("currentPassword y newPassword son obligatorios", 400)
+
+    try:
+        token = auth_header.split(' ', 1)[1].strip()
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get('type') != 'ACCESS':
+            return respuesta_error("Token de acceso invalido", 401)
+
+        username = payload.get('sub')
+        user = obtener_usuario_por_username(username)
+        if not user:
+            return respuesta_error("Usuario no encontrado", 404)
+
+        _, _, _, password_hash, _, active, _ = user
+        if not active or not password_hash or not check_password(data['currentPassword'], password_hash):
+            return respuesta_error("Contrasena actual invalida", 401)
+
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE auth_users SET password_hash=%s, active=true, updated_at=NOW() WHERE username=%s",
+            (hash_password(data['newPassword']), username)
+        )
+        conn.commit()
+        cur.close()
+        conn.close()
+
+        return respuesta_exitosa("Contrasena actualizada correctamente")
+    except jwt.ExpiredSignatureError:
+        return respuesta_error("Token expirado", 401)
+    except jwt.InvalidTokenError:
+        return respuesta_error("Token invalido", 401)
+    except Exception as e:
+        return respuesta_error(str(e), 500)
 
 
 @app.route('/auth/recover-password', methods=['POST'])

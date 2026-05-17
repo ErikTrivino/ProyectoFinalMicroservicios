@@ -459,6 +459,82 @@ def obtener_empleado(id):
         "estado": row[6]
     })
 
+
+# ======================================================
+# PUT /empleados/{id}
+# ======================================================
+
+@app.route('/empleados/<id>', methods=['PUT'])
+@requerir_rol('ADMIN')
+def actualizar_empleado(id):
+    data = request.get_json()
+    if not data:
+        return respuesta_error("El cuerpo es obligatorio")
+
+    campos_permitidos = {
+        'cedula': 'cedula',
+        'nombre': 'nombre',
+        'email': 'email',
+        'departamentoId': 'departamento_id',
+        'fechaIngreso': 'fecha_ingreso',
+        'estado': 'estado'
+    }
+    cambios = {campo: data[campo] for campo in campos_permitidos if campo in data}
+    if not cambios:
+        return respuesta_error("No hay campos validos para actualizar")
+
+    if 'estado' in cambios and cambios['estado'] not in ['ACTIVO', 'EN_VACACIONES', 'RETIRADO']:
+        return respuesta_error("Estado invalido. Valores permitidos: ACTIVO, EN_VACACIONES, RETIRADO", 400)
+
+    if 'departamentoId' in cambios:
+        validacion = validar_departamento(cambios['departamentoId'])
+        if validacion == "unauthorized":
+            return respuesta_error("Token invalido o faltante para el servicio de departamentos", 401)
+        if validacion is False:
+            return respuesta_error("El departamento no existe", 400)
+        if validacion is None:
+            return respuesta_error("Servicio de departamentos no disponible", 503)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT 1 FROM empleados WHERE id=%s", (id,))
+        if not cur.fetchone():
+            return respuesta_error("Empleado no existe", 404)
+
+        assignments = []
+        values = []
+        for campo_api, valor in cambios.items():
+            assignments.append(f"{campos_permitidos[campo_api]}=%s")
+            values.append(valor)
+        values.append(id)
+
+        cur.execute(f"UPDATE empleados SET {', '.join(assignments)} WHERE id=%s", values)
+        conn.commit()
+
+        cur.execute("""
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE id=%s
+        """, (id,))
+        row = cur.fetchone()
+
+        return respuesta_exitosa("Empleado actualizado", {
+            "id": row[0],
+            "cedula": row[1],
+            "nombre": row[2],
+            "email": row[3],
+            "departamentoId": row[4],
+            "fechaIngreso": row[5].isoformat(),
+            "estado": row[6]
+        })
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+    finally:
+        cur.close()
+        conn.close()
+
 # ======================================================
 # DELETE /empleados/{id}
 # ======================================================
@@ -630,6 +706,8 @@ def init_db():
             estado VARCHAR(20) DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'EN_VACACIONES', 'RETIRADO'))
         );
     """)
+    cur.execute("ALTER TABLE empleados ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'ACTIVO';")
+    cur.execute("UPDATE empleados SET estado='ACTIVO' WHERE estado IS NULL;")
     conn.commit()
     cur.close()
     conn.close()
