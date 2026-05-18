@@ -1,13 +1,15 @@
 FROM node:20-alpine
 
+RUN corepack enable && corepack prepare pnpm@latest --activate
+
 WORKDIR /app
 
-COPY package*.json ./
+COPY package.json ./
 
-RUN npm install --production
+RUN pnpm install --prod
 
 COPY . .
 
 EXPOSE 80
 
-CMD ["npm", "start"]
+CMD ["pnpm", "start"]

@@ -35,3 +35,8 @@ scrape_configs:
     metrics_path: '/actuator/prometheus'
     static_configs:
       - targets: ['perfiles-service:8083']
+
+  - job_name: 'vacaciones-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['vacaciones-service:80']
