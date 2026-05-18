@@ -12,3 +12,4 @@ opentelemetry-instrumentation-flask==0.45b0
 opentelemetry-instrumentation-requests==0.45b0
 opentelemetry-exporter-zipkin==1.24.0
 python-json-logger==2.0.7
+pytest==8.0.0
