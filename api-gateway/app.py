@@ -59,6 +59,7 @@ def obtener_token():
 
 
 def validar_token():
+    # Validacion JWT centralizada en gateway para rutas protegidas.
     token = obtener_token()
     if not token:
         return None, respuesta_error("Authorization header missing or malformed", 401)
@@ -74,6 +75,7 @@ def validar_token():
 
 
 def requiere_auth(*roles):
+    # Decorador RBAC: exige token valido y, opcionalmente, rol permitido.
     def decorator(fn):
         @wraps(fn)
         def wrapper(*args, **kwargs):
@@ -100,6 +102,7 @@ def responder_backend(response):
 
 
 def proxy(base_url, path):
+    # Enrutamiento del API Gateway: reenvia la solicitud al microservicio destino.
     url = f"{base_url.rstrip('/')}/{path.lstrip('/')}"
     try:
         response = requests.request(
@@ -145,17 +148,21 @@ def health():
     return respuesta_exitosa("api-gateway OK")
 
 
+# Operacion expuesta: POST /auth/login (autenticacion).
 @app.post("/auth/login")
 def login():
     return proxy(AUTH_SERVICE_URL, "/auth/login")
 
 
+# Operacion expuesta: POST /auth/change-password (usuario autenticado).
 @app.post("/auth/change-password")
 @requiere_auth()
 def change_password():
     return proxy(AUTH_SERVICE_URL, "/auth/change-password")
 
 
+# Operaciones expuestas: GET/POST /employees.
+# GET lista empleados; POST crea empleado (solo ADMIN).
 @app.route("/employees", methods=["GET", "POST"])
 @requiere_auth("ADMIN", "USER")
 def employees():
@@ -164,6 +171,8 @@ def employees():
     return proxy(EMPLEADOS_SERVICE_URL, "/empleados")
 
 
+# Operaciones expuestas: GET/PUT/DELETE /employees/{id}.
+# GET compone "empleado + perfil"; PUT/DELETE actualizan/eliminan empleado (solo ADMIN).
 @app.route("/employees/<employee_id>", methods=["GET", "PUT", "DELETE"])
 @requiere_auth("ADMIN", "USER")
 def employee_by_id(employee_id):
@@ -172,6 +181,9 @@ def employee_by_id(employee_id):
     if request.method != "GET":
         return proxy(EMPLEADOS_SERVICE_URL, f"/empleados/{employee_id}")
 
+    # Composicion de respuesta desde dos microservicios:
+    # - empleados-service -> datos base del empleado
+    # - perfiles-service  -> perfil del empleado
     empleado_response, empleado_body = pedir_json(EMPLEADOS_SERVICE_URL, f"/empleados/{employee_id}")
     if empleado_response.status_code != 200:
         return responder_backend(empleado_response)
@@ -187,6 +199,7 @@ def employee_by_id(employee_id):
     })
 
 
+# Operaciones expuestas: GET/PUT /profile del empleado autenticado.
 @app.route("/profile", methods=["GET", "PUT"])
 @requiere_auth("ADMIN", "USER")
 def own_profile():
@@ -196,6 +209,8 @@ def own_profile():
     return proxy(PERFILES_SERVICE_URL, f"/perfiles/{employee_id}")
 
 
+# Operaciones expuestas: POST /vacations y GET /vacations.
+# POST programa vacaciones; GET consulta vacaciones por cedula.
 @app.route("/vacations", methods=["GET", "POST"])
 @requiere_auth("ADMIN", "USER")
 def vacations():
@@ -219,4 +234,6 @@ def vacations():
 
 
 if __name__ == "__main__":
+    # 0.0.0.0 permite exponer el gateway dentro del contenedor.
+    # En docker-compose se publica como puerto de entrada para clientes (8088 -> 80).
     app.run(host="0.0.0.0", port=80)

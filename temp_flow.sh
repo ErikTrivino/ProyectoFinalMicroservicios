@@ -12,7 +12,7 @@ fi
 
 echo "Token ADMIN obtenido."
 
-CEDULA="E$(date +%s)"
+CEDULA="$(date +%s)${RANDOM}"
 EMAIL="ana.${CEDULA}@empresa.com"
 
 curl -s -X POST http://localhost:8086/departamentos \
