@@ -3,6 +3,8 @@ const express = require('express');
 const cors = require('cors');
 const { initDB } = require('./config/db');
 const rabbitMQ = require('./config/rabbitmq');
+const expressPromBundle = require('express-prom-bundle');
+const logger = require('./config/logger');
 const authMiddleware = require('./middlewares/authMiddleware');
 const { programarVacaciones, obtenerVacacionesPorEmpleado, actualizarEstado } = require('./controllers/vacacionesController');
 const { iniciarCronJob } = require('./jobs/vacacionesCron');
@@ -11,6 +13,15 @@ const swaggerDocs = require('./config/swagger');
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+const metricsMiddleware = expressPromBundle({
+  includeMethod: true,
+  includePath: true,
+  promClient: {
+    collectDefaultMetrics: {}
+  }
+});
+app.use(metricsMiddleware);
 
 // Configurar Swagger
 swaggerDocs(app);
@@ -136,7 +147,7 @@ const startServer = async () => {
   iniciarCronJob();
 
   app.listen(PORT, () => {
-    console.log(`Servidor de Vacaciones escuchando en el puerto ${PORT}`);
+    logger.info(`Servidor de Vacaciones escuchando en el puerto ${PORT}`);
   });
 };
 
