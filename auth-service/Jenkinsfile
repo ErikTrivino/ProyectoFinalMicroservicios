@@ -1,5 +1,5 @@
 // ============================================================
-// Jenkinsfile - empleados-service (Python/Flask)
+// Jenkinsfile - auth-service (Python/Flask)
 // Reto 6 - Integración Continua
 // ============================================================
 // Pipeline declarativo con etapas:
@@ -18,8 +18,8 @@ pipeline {
     }
 
     environment {
-        SERVICE_NAME = 'empleados-service'
-        IMAGE_NAME   = "proyecto-empleados"
+        SERVICE_NAME = 'auth-service'
+        IMAGE_NAME   = "proyecto-auth"
         REGISTRY     = "localhost:5000"
         SONAR_TOKEN  = credentials('sonar-token')
     }
@@ -90,7 +90,7 @@ pipeline {
                         keepAll: true,
                         reportDir: 'htmlcov',
                         reportFiles: 'index.html',
-                        reportName: 'Cobertura Empleados'
+                        reportName: 'Cobertura Auth'
                     ])
                 }
             }
@@ -114,8 +114,8 @@ pipeline {
                         sonar-scanner \
                             -Dsonar.host.url=http://sonarqube:9000 \
                             -Dsonar.token=${SONAR_TOKEN} \
-                            -Dsonar.projectKey=empleados-service \
-                            -Dsonar.projectName='Empleados Service' \
+                            -Dsonar.projectKey=auth-service \
+                            -Dsonar.projectName='Auth Service' \
                             -Dsonar.sources=. \
                             -Dsonar.inclusions=app.py \
                             -Dsonar.exclusions=test_app.py,__pycache__/**,*.pyc,.env \

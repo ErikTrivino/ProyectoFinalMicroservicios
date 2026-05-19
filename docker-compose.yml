@@ -68,6 +68,11 @@ services:
       - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml
       - ./empleados-service:/var/jenkins_home/workspace-config/empleados-service
       - ./perfiles-service:/var/jenkins_home/workspace-config/perfiles-service
+      - ./auth-service:/var/jenkins_home/workspace-config/auth-service
+      - ./departamentos-service:/var/jenkins_home/workspace-config/departamentos-service
+      - ./notificaciones-service:/var/jenkins_home/workspace-config/notificaciones-service
+      - ./NotificacionesService.Tests:/var/jenkins_home/workspace-config/NotificacionesService.Tests
+      - ./ProyectoFinalMicroservicios.sln:/var/jenkins_home/workspace-config/ProyectoFinalMicroservicios.sln
       - ./pruebas-funcionales:/var/jenkins_home/workspace-config/pruebas-funcionales
       - ./docker-compose.yml:/var/jenkins_home/workspace-config/docker-compose.yml
       - ./jenkins/wait-for-services.sh:/var/jenkins_home/workspace-config/jenkins/wait-for-services.sh

@@ -798,6 +798,7 @@ La **Integración Continua (CI)** automatiza la compilación, pruebas y empaquet
 - **Detección temprana de errores:** Los problemas se detectan en minutos, no en días
 - **Deployments independientes:** Cada servicio se compila, prueba y empaqueta de forma independiente
 - **Confianza en el código:** El pipeline verifica todo en un entorno limpio y reproducible
+- **Trigger automático:** Al hacer `git push`, Jenkins detecta los cambios y dispara los pipelines automáticamente
 
 ### 🏗️ Arquitectura CI
 
@@ -835,10 +836,17 @@ Jenkins se configura automáticamente sin Setup Wizard. Acceder a http://localho
 
 Los pipelines se aprovisionan automáticamente via **JCasC** (Jenkins Configuration as Code). Al levantar Jenkins, los jobs ya están creados:
 - `empleados-service-pipeline` (Python/Flask)
+- `auth-service-pipeline` (Python/Flask)
+- `departamentos-service-pipeline` (Python/Flask)
 - `perfiles-service-pipeline` (Java/Spring Boot)
+- `notificaciones-service-pipeline` (.NET 10)
 - `verificacion-docker` (Pipeline de verificación)
 
-#### d. Ejecutar un pipeline manualmente
+#### d. Trigger automático por Git Push
+
+Cada pipeline está configurado con **SCM Polling** (`pollSCM`) que consulta el repositorio Git (`https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git`) cada ~5 minutos. Si detecta cambios nuevos tras un `git push`, dispara automáticamente el pipeline correspondiente.
+
+#### e. Ejecutar un pipeline manualmente
 
 1. Ir al job en Jenkins (ej. `empleados-service-pipeline`)
 2. Click en **"Build Now"**

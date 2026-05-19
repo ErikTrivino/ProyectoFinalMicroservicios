@@ -41,16 +41,33 @@ La **Integración Continua (CI)** es una práctica de desarrollo de software en 
 ### Flujo del Pipeline
 
 ```
-git push → [Trigger] → Checkout → Build → Test → SonarQube → Quality Gate → Package → Publish → E2E Tests
-                                    │        │         │            │            │          │           │
-                                    │        │         │            │            │          │           └── ✗ Falla → Pipeline falla
-                                    │        │         │            │            │          └── docker push al registry
-                                    │        │         │            │            └── docker build imagen
-                                    │        │         │            └── ✗ Cobertura < 70% → Pipeline falla
-                                    │        │         └── Envía análisis a SonarQube
-                                    │        └── ✗ Tests fallan → Pipeline falla
-                                    └── ✗ No compila → Pipeline falla
+git push → [SCM Polling cada 5 min] → Checkout → Build → Test → SonarQube → Quality Gate → Package → Publish → E2E Tests
+                                          │          │       │         │            │            │          │           │
+                                          │          │       │         │            │            │          │           └── ✗ Falla → Pipeline falla
+                                          │          │       │         │            │            │          └── docker push al registry
+                                          │          │       │         │            │            └── docker build imagen
+                                          │          │       │         │            └── ✗ Cobertura < 70% → Pipeline falla
+                                          │          │       │         └── Envía análisis a SonarQube
+                                          │          │       └── ✗ Tests fallan → Pipeline falla
+                                          │          └── ✗ No compila → Pipeline falla
+                                          └── Jenkins detecta cambios en el repositorio Git
 ```
+
+### Trigger Automático por Git Push
+
+Cada pipeline se configura con **SCM Polling** (`pollSCM('H/5 * * * *')`) que consulta el repositorio Git cada ~5 minutos. Si detecta cambios nuevos (un `git push`), dispara automáticamente el pipeline correspondiente.
+
+| Aspecto | Detalle |
+|---------|--------|
+| **Mecanismo** | SCM Polling (pollSCM) |
+| **Frecuencia** | Cada ~5 minutos (hash-based para distribuir carga) |
+| **Repositorio** | `https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git` |
+| **Rama** | `*/main` |
+| **Alternativa** | GitHub Webhooks (requiere Jenkins accesible desde internet) |
+
+**¿Por qué SCM Polling y no Webhooks?**
+
+En un entorno académico local, Jenkins no es accesible desde internet, por lo que GitHub no puede enviar webhooks. SCM Polling es la alternativa más robusta: Jenkins consulta periódicamente el repositorio y detecta cambios sin necesidad de conectividad entrante.
 
 ---
 
@@ -112,14 +129,17 @@ git push → [Trigger] → Checkout → Build → Test → SonarQube → Quality
 
 ## Punto 2: Jenkinsfiles – Build y Test
 
-### Microservicios Elegidos
+### Microservicios con Pipeline CI
 
-Se implementan pipelines para **2 microservicios en lenguajes diferentes**:
+Se implementan pipelines para **5 microservicios en 3 lenguajes diferentes**:
 
 | Microservicio | Lenguaje | Framework | Herramienta Build | Herramienta Test |
 |---|---|---|---|---|
 | **empleados-service** | Python | Flask | pip | pytest + pytest-cov |
+| **auth-service** | Python | Flask | pip | pytest + pytest-cov |
+| **departamentos-service** | Python | Flask | pip | pytest + pytest-cov |
 | **perfiles-service** | Java | Spring Boot | Gradle | JUnit 5 + JaCoCo |
+| **notificaciones-service** | C# | .NET 10 | dotnet | xUnit + Coverlet |
 
 ### Decisiones Técnicas y Justificación
 
@@ -372,12 +392,29 @@ Abrir http://localhost:8090 en el navegador.
 ProyectoFinalMicroservicios/
 ├── jenkins/
 │   ├── Dockerfile              # Imagen personalizada de Jenkins
-│   ├── casc.yaml               # Configuración JCasC (jobs + credenciales)
+│   ├── casc.yaml               # Configuración JCasC (jobs + credenciales + SCM)
 │   └── wait-for-services.sh    # Script health check para E2E
 ├── empleados-service/
 │   ├── Jenkinsfile             # Pipeline CI (Python)
 │   ├── test_app.py             # Tests unitarios (pytest)
 │   ├── sonar-project.properties # Config SonarQube Scanner
+│   └── ...
+├── auth-service/
+│   ├── Jenkinsfile             # Pipeline CI (Python)
+│   ├── test_app.py             # Tests unitarios (pytest)
+│   ├── sonar-project.properties # Config SonarQube Scanner
+│   └── ...
+├── departamentos-service/
+│   ├── Jenkinsfile             # Pipeline CI (Python)
+│   ├── test_app.py             # Tests unitarios (pytest)
+│   ├── sonar-project.properties # Config SonarQube Scanner
+│   └── ...
+├── notificaciones-service/
+│   ├── Jenkinsfile             # Pipeline CI (.NET 10)
+│   ├── sonar-project.properties # Config SonarQube Scanner
+│   └── ...
+├── NotificacionesService.Tests/
+│   ├── UnitTest1.cs            # Tests unitarios (xUnit)
 │   └── ...
 ├── perfiles-service/
 │   ├── Jenkinsfile             # Pipeline CI (Java/Gradle)
@@ -402,7 +439,9 @@ ProyectoFinalMicroservicios/
 | Quality Gate | Personalizado (≥70%) | Sonar way (≥80%) |
 | Scanner Python | sonar-scanner-cli (Docker) | Instalación en Jenkins |
 | Scanner Java | Plugin Sonar Gradle | sonar-scanner genérico |
+| Scanner .NET | sonar-scanner-cli + Coverlet | dotnet-sonarscanner |
 | Naming convention | `proyecto-{servicio}:{BUILD}` | Semántico / Solo nombre |
 | Registry | Local (registry:2) | DockerHub |
 | Health check E2E | Script de polling | sleep / depends_on |
 | Aislamiento datos | `docker-compose down -v` | Sin limpieza |
+| Trigger pipeline | SCM Polling (pollSCM) | GitHub Webhooks |

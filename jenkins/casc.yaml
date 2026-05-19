@@ -7,6 +7,7 @@
 #   - Herramientas (SonarQube Scanner)
 #   - Credenciales (SonarQube token)
 #   - Jobs (pipelines para cada microservicio)
+#   - SCM (repositorio Git para trigger por push)
 # ============================================================
 
 jenkins:
@@ -50,25 +51,113 @@ credentials:
 # ============================================================
 # Jobs - Pipelines para microservicios
 # ============================================================
+# Cada job usa SCM (Git) para obtener el Jenkinsfile del
+# repositorio, con pollSCM para disparar al hacer git push.
+# ============================================================
 jobs:
   - script: |
       pipelineJob('empleados-service-pipeline') {
         description('Pipeline CI para empleados-service (Python/Flask)')
         definition {
-          cps {
-            script(new File('/var/jenkins_home/workspace-config/empleados-service/Jenkinsfile').text)
-            sandbox(true)
+          cpsScmFlowDefinition {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('empleados-service/Jenkinsfile')
+            lightweight(true)
           }
+        }
+        triggers {
+          scm('H/5 * * * *')
         }
       }
   - script: |
       pipelineJob('perfiles-service-pipeline') {
         description('Pipeline CI para perfiles-service (Java/Spring Boot)')
         definition {
-          cps {
-            script(new File('/var/jenkins_home/workspace-config/perfiles-service/Jenkinsfile').text)
-            sandbox(true)
+          cpsScmFlowDefinition {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('perfiles-service/Jenkinsfile')
+            lightweight(true)
           }
+        }
+        triggers {
+          scm('H/5 * * * *')
+        }
+      }
+  - script: |
+      pipelineJob('auth-service-pipeline') {
+        description('Pipeline CI para auth-service (Python/Flask)')
+        definition {
+          cpsScmFlowDefinition {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('auth-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        triggers {
+          scm('H/5 * * * *')
+        }
+      }
+  - script: |
+      pipelineJob('departamentos-service-pipeline') {
+        description('Pipeline CI para departamentos-service (Python/Flask)')
+        definition {
+          cpsScmFlowDefinition {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('departamentos-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        triggers {
+          scm('H/5 * * * *')
+        }
+      }
+  - script: |
+      pipelineJob('notificaciones-service-pipeline') {
+        description('Pipeline CI para notificaciones-service (.NET 10)')
+        definition {
+          cpsScmFlowDefinition {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
+                }
+                branches('*/main')
+              }
+            }
+            scriptPath('notificaciones-service/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+        triggers {
+          scm('H/5 * * * *')
         }
       }
   - script: |

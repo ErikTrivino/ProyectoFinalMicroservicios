@@ -10,6 +10,13 @@
 pipeline {
     agent any
 
+    // ========================================
+    // Trigger: se dispara al detectar cambios en Git
+    // ========================================
+    triggers {
+        pollSCM('H/5 * * * *')
+    }
+
     environment {
         SERVICE_NAME = 'perfiles-service'
         IMAGE_NAME   = "proyecto-perfiles"
