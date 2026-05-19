@@ -1,12 +1,53 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import psycopg2
 import os
+import random
+import time
 from dotenv import load_dotenv
 from flasgger import Swagger, swag_from
+import jwt
+from functools import wraps
 
 load_dotenv()
 
+import logging
+from pythonjsonlogger import jsonlogger
+from prometheus_flask_exporter import PrometheusMetrics
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+
 app = Flask(__name__)
+
+# Logs estructurados
+logger = logging.getLogger()
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
+
+# OpenTelemetry y Zipkin
+zipkin_exporter = ZipkinExporter(endpoint="http://zipkin:9411/api/v2/spans")
+service_name = os.getenv("OTEL_SERVICE_NAME", "departamentos-service")
+resource = Resource.create({"service.name": service_name})
+provider = TracerProvider(resource=resource)
+provider.add_span_processor(BatchSpanProcessor(zipkin_exporter))
+trace.set_tracer_provider(provider)
+
+# Métricas Prometheus
+metrics = PrometheusMetrics(app)
+
+# Instrumentar Flask
+FlaskInstrumentor().instrument_app(app)
+RequestsInstrumentor().instrument()
+
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 swagger = Swagger(app, template={
     "swagger": "2.0",
@@ -14,7 +55,18 @@ swagger = Swagger(app, template={
         "title": "API Departamentos",
         "description": "Servicio de gestión de departamentos",
         "version": "1.0.0"
-    }
+    },
+    "basePath": "/",
+    "schemes": ["http"],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
+        }
+    },
+    "security": [{"Bearer": []}]
 })
 
 # =========================
@@ -37,6 +89,44 @@ def respuesta_exitosa(mensaje, data=None, status=200):
 
 def respuesta_error(mensaje, status=400):
     return jsonify({"success": False, "message": mensaje, "data": None}), status
+
+# =========================
+# AUTENTICACIÓN Y RBAC
+# =========================
+
+def obtener_token_autorizacion():
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    return auth_header.split(' ', 1)[1].strip()
+
+
+def validar_token(token):
+    return jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+
+
+def requerir_rol(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            token = obtener_token_autorizacion()
+            if not token:
+                return respuesta_error('Authorization header missing or malformed', 401)
+            try:
+                payload = validar_token(token)
+            except jwt.ExpiredSignatureError:
+                return respuesta_error('Token expirado', 401)
+            except jwt.InvalidTokenError:
+                return respuesta_error('Token inválido', 401)
+
+            if payload.get('role') not in roles:
+                return respuesta_error('Permiso denegado', 403)
+
+            g.user = payload.get('sub')
+            g.role = payload.get('role')
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
 
 # =========================
 # POST /departamentos
@@ -67,6 +157,7 @@ def respuesta_error(mensaje, status=400):
         409: {'description': 'Departamento ya existe'}
     }
 })
+@requerir_rol('ADMIN')
 def registrar_departamento():
     data = request.get_json()
 
@@ -124,7 +215,11 @@ def registrar_departamento():
         404: {'description': 'Departamento no existe'}
     }
 })
+@requerir_rol('USER', 'ADMIN')
 def obtener_departamento(id):
+    if os.getenv("CHAOS_LATENCY_ENABLED", "false").lower() == "true" and random.random() < 0.5:
+        time.sleep(5)
+
     conn = get_db()
     cur = conn.cursor()
 
@@ -146,6 +241,9 @@ def obtener_departamento(id):
         "descripcion": row[2]
     })
 
+# Ejemplo en Python: latencia artificial para la simulacion de caos.
+if random.random() < 0.5:
+    time.sleep(5)  # Latencia artificial
 # ======================================================
 # GET /departamentos (Listado paginado)
 # ======================================================
@@ -177,6 +275,7 @@ def obtener_departamento(id):
         }
     }
 })
+@requerir_rol('USER', 'ADMIN')
 def listar_departamentos():
     # =========================
     # 1️⃣ Parámetros de paginación
@@ -266,6 +365,13 @@ def init_db():
     finally:
         cur.close()
         conn.close()
+
+# =========================
+# GET /health
+# =========================
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == '__main__':
     init_db()

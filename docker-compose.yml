@@ -1,5 +1,3 @@
-version: "3.9"
-
 # =========================
 # Red compartida
 # =========================
@@ -13,10 +11,135 @@ networks:
 volumes:
   empleados-db-data:
   departamentos-db-data:
-  perfiles-db-data:
+  auth-db-data:
   notificaciones-db-data:
+  perfiles-db-data:
+  vacaciones-db-data:
+  # Reto 6 - CI/CD
+  jenkins_data:
+  sonarqube_data:
+  sonarqube_logs:
+  sonarqube_extensions:
+  sonar_db_data:
+  registry_data:
 
 services:
+
+  # ==================================================
+  # API GATEWAY - Punto unico de entrada
+  # ==================================================
+  api-gateway:
+    build: ./api-gateway
+    container_name: api-gateway
+    environment:
+      AUTH_SERVICE_URL: http://auth-service
+      EMPLEADOS_SERVICE_URL: http://empleados-service
+      PERFILES_SERVICE_URL: http://perfiles-service:8083
+      VACACIONES_SERVICE_URL: http://vacaciones-service
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+      OTEL_SERVICE_NAME: api-gateway
+      ZIPKIN_ENDPOINT: http://zipkin:9411/api/v2/spans
+    depends_on:
+      - auth-service
+      - empleados-service
+      - perfiles-service
+      - vacaciones-service
+    networks:
+      - checkin-net
+    ports:
+      - "8088:80"
+
+  # ==================================================
+  # JENKINS - Servidor de Integración Continua (Reto 6)
+  # ==================================================
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    container_name: jenkins
+    user: root
+    ports:
+      - "8090:8080"       # Interfaz web
+      - "50000:50000"     # Comunicación con agentes
+    volumes:
+      - jenkins_data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker Socket Mount
+      - ./jenkins/casc.yaml:/var/jenkins_home/casc_configs/casc.yaml
+      - ./empleados-service:/var/jenkins_home/workspace-config/empleados-service
+      - ./perfiles-service:/var/jenkins_home/workspace-config/perfiles-service
+      - ./auth-service:/var/jenkins_home/workspace-config/auth-service
+      - ./departamentos-service:/var/jenkins_home/workspace-config/departamentos-service
+      - ./notificaciones-service:/var/jenkins_home/workspace-config/notificaciones-service
+      - ./NotificacionesService.Tests:/var/jenkins_home/workspace-config/NotificacionesService.Tests
+      - ./ProyectoFinalMicroservicios.sln:/var/jenkins_home/workspace-config/ProyectoFinalMicroservicios.sln
+      - ./pruebas-funcionales:/var/jenkins_home/workspace-config/pruebas-funcionales
+      - ./docker-compose.yml:/var/jenkins_home/workspace-config/docker-compose.yml
+      - ./jenkins/wait-for-services.sh:/var/jenkins_home/workspace-config/jenkins/wait-for-services.sh
+    environment:
+      - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
+      - CASC_JENKINS_CONFIG=/var/jenkins_home/casc_configs
+    networks:
+      - checkin-net
+    restart: unless-stopped
+
+  # ==================================================
+  # SONARQUBE - Análisis de Calidad de Código (Reto 6)
+  # ==================================================
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube
+    ports:
+      - "9000:9000"
+    environment:
+      - SONAR_JDBC_URL=jdbc:postgresql://sonar-db:5432/sonar
+      - SONAR_JDBC_USERNAME=sonar
+      - SONAR_JDBC_PASSWORD=sonar
+    volumes:
+      - sonarqube_data:/opt/sonarqube/data
+      - sonarqube_logs:/opt/sonarqube/logs
+      - sonarqube_extensions:/opt/sonarqube/extensions
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    restart: unless-stopped
+
+  # ==================================================
+  # SONAR-DB - PostgreSQL para SonarQube (Reto 6)
+  # ==================================================
+  sonar-db:
+    image: postgres:16-alpine
+    container_name: sonar-db
+    environment:
+      - POSTGRES_DB=sonar
+      - POSTGRES_USER=sonar
+      - POSTGRES_PASSWORD=sonar
+    volumes:
+      - sonar_db_data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sonar -d sonar"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ==================================================
+  # DOCKER REGISTRY LOCAL (Reto 6)
+  # ==================================================
+  registry:
+    image: registry:2
+    container_name: docker-registry
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry_data:/var/lib/registry
+    networks:
+      - checkin-net
+    restart: unless-stopped
 
   # ==================================================
   # MESSAGE BROKER - RABBITMQ (NUEVO - Reto 3)
@@ -73,10 +196,12 @@ services:
       DB_USER: empleados_user
       DB_PASSWORD: empleados_pass
       DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
-      RABBITMQ_HOST: message-broker          # AGREGAR
-      RABBITMQ_PORT: 5672                    # AGREGAR
-      RABBITMQ_USER: admin                   # AGREGAR
-      RABBITMQ_PASS: admin                   # AGREGAR
+      RABBITMQ_HOST: message-broker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
     depends_on:
       database-empleados:
         condition: service_healthy
@@ -110,6 +235,26 @@ services:
       retries: 5
 
   # ==================================================
+  # BASE DE DATOS - AUTH
+  # ==================================================
+  database-auth:
+    image: postgres:16
+    container_name: database-auth
+    environment:
+      POSTGRES_DB: auth_db
+      POSTGRES_USER: auth_user
+      POSTGRES_PASSWORD: auth_pass
+    volumes:
+      - auth-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth_user -d auth_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
   # SERVICIO - DEPARTAMENTOS
   # ==================================================
   departamentos-service:
@@ -121,60 +266,47 @@ services:
       DB_NAME: departamentos_db
       DB_USER: departamentos_user
       DB_PASSWORD: departamentos_pass
-      
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+      CHAOS_LATENCY_ENABLED: ${CHAOS_LATENCY_ENABLED:-false}
     depends_on:
       database-departamentos:
         condition: service_healthy
     networks:
       - checkin-net
     ports:
-      - "8081:8081"
+      - "8086:8081"
 
   # ==================================================
-  # BASE DE DATOS - PERFILES (Reto 3)
+  # SERVICIO - AUTH / JWT
   # ==================================================
-  database-perfiles:
-    image: postgres:16
-    container_name: database-perfiles
+  auth-service:
+    build: ./auth-service
+    container_name: auth-service
     environment:
-      POSTGRES_DB: perfiles_db
-      POSTGRES_USER: perfiles_user
-      POSTGRES_PASSWORD: perfiles_pass
-    volumes:
-      - perfiles-db-data:/var/lib/postgresql/data
-    networks:
-      - checkin-net
-    ports:
-      - "5439:5432"
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # ==================================================
-  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
-  # ==================================================
-  perfiles-service:
-    build: ./java
-    container_name: perfiles-service
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
-      SPRING_DATASOURCE_USERNAME: perfiles_user
-      SPRING_DATASOURCE_PASSWORD: perfiles_pass
-      SPRING_RABBITMQ_HOST: message-broker
-      SPRING_RABBITMQ_PORT: 5672
-      SPRING_RABBITMQ_USERNAME: admin
-      SPRING_RABBITMQ_PASSWORD: admin
+      DB_HOST: database-auth
+      DB_PORT: 5432
+      DB_NAME: auth_db
+      DB_USER: auth_user
+      DB_PASSWORD: auth_pass
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+      ACCESS_TOKEN_EXPIRES_MINUTES: 15
+      RESET_TOKEN_EXPIRES_MINUTES: 60
+      RABBITMQ_URL: amqp://admin:admin@message-broker:5672
+      AUTH_ADMIN_USER: admin
+      AUTH_ADMIN_PASSWORD: admin123
+      AUTH_DEFAULT_USER: user
+      AUTH_DEFAULT_PASSWORD: user123
     depends_on:
-      database-perfiles:
+      database-auth:
         condition: service_healthy
       message-broker:
         condition: service_healthy
     networks:
       - checkin-net
     ports:
-      - "8083:8083"
+      - "8082:80"
 
   # ==================================================
   # BASE DE DATOS - NOTIFICACIONES (Reto 3)
@@ -219,4 +351,178 @@ services:
       - checkin-net
     ports:
       - "8084:8084"
-  
+
+ # ==================================================
+  # BASE DE DATOS - PERFILES (Reto 3)
+  # ==================================================
+  database-perfiles:
+    image: postgres:16
+    container_name: database-perfiles
+    environment:
+      POSTGRES_DB: perfiles_db
+      POSTGRES_USER: perfiles_user
+      POSTGRES_PASSWORD: perfiles_pass
+    volumes:
+      - perfiles-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5439:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U perfiles_user -d perfiles_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - PERFILES (Reto 3 / Spring Boot)
+  # ==================================================
+  perfiles-service:
+    build: ./perfiles-service
+    container_name: perfiles-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://database-perfiles:5432/perfiles_db
+      SPRING_DATASOURCE_USERNAME: perfiles_user
+      SPRING_DATASOURCE_PASSWORD: perfiles_pass
+      SPRING_RABBITMQ_HOST: message-broker
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: admin
+      SPRING_RABBITMQ_PASSWORD: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+      JWT_ALGORITHM: HS256
+    depends_on:
+      database-perfiles:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8083:8083"
+
+  # ==================================================
+  # BASE DE DATOS - VACACIONES
+  # ==================================================
+  database-vacaciones:
+    image: postgres:16
+    container_name: database-vacaciones
+    environment:
+      POSTGRES_DB: vacaciones_db
+      POSTGRES_USER: vacaciones_user
+      POSTGRES_PASSWORD: vacaciones_pass
+    volumes:
+      - vacaciones-db-data:/var/lib/postgresql/data
+    networks:
+      - checkin-net
+    ports:
+      - "5441:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vacaciones_user -d vacaciones_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # ==================================================
+  # SERVICIO - VACACIONES (Node.js)
+  # ==================================================
+  vacaciones-service:
+    build: ./vacaciones-service
+    container_name: vacaciones-service
+    environment:
+      DB_HOST: database-vacaciones
+      DB_PORT: 5432
+      DB_NAME: vacaciones_db
+      DB_USER: vacaciones_user
+      DB_PASSWORD: vacaciones_pass
+      RABBITMQ_HOST: message-broker
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: admin
+      RABBITMQ_PASS: admin
+      JWT_SECRET: supersecretosupersecretosupersecreto
+    depends_on:
+      database-vacaciones:
+        condition: service_healthy
+      message-broker:
+        condition: service_healthy
+    networks:
+      - checkin-net
+    ports:
+      - "8085:80"
+
+  # ==================================================
+  # OBSERVABILIDAD
+  # ==================================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - checkin-net
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      # SMTP via Mailhog
+      - GF_SMTP_ENABLED=true
+      - GF_SMTP_HOST=mailhog:1025
+      - GF_SMTP_FROM_ADDRESS=grafana@microservicios.local
+      - GF_SMTP_FROM_NAME=Grafana Alertas
+      - GF_SMTP_SKIP_VERIFY=true
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning
+      - ./observability/grafana/provisioning/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - mailhog
+    networks:
+      - checkin-net
+
+  # ==================================================
+  # MAILHOG - Servidor SMTP de prueba
+  # ==================================================
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: mailhog
+    ports:
+      - "1025:1025"   # Puerto SMTP (Grafana envía aquí)
+      - "8025:8025"   # Interfaz web para ver emails
+    networks:
+      - checkin-net
+    restart: unless-stopped
+
+  zipkin:
+    image: openzipkin/zipkin:latest
+    container_name: zipkin
+    ports:
+      - "9411:9411"
+    networks:
+      - checkin-net
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    ports:
+      - "3100:3100"
+    networks:
+      - checkin-net
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: promtail
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./observability/promtail-config.yml:/etc/promtail/promtail-config.yml
+    command: -config.file=/etc/promtail/promtail-config.yml
+    depends_on:
+      - loki
+    networks:
+      - checkin-net

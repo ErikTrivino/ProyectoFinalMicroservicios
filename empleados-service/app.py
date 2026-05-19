@@ -1,7 +1,4 @@
-import pika
-import json
-
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 import psycopg2
 import uuid
 import os
@@ -11,15 +8,58 @@ from flasgger import Swagger
 import requests
 import pybreaker
 from concurrent.futures import ThreadPoolExecutor
+from contextvars import copy_context
 from requests.exceptions import RequestException
+import pika
+import json
+import jwt
+from functools import wraps
 
 load_dotenv()
 
+import logging
+from pythonjsonlogger import jsonlogger
+from prometheus_flask_exporter import PrometheusMetrics
+from opentelemetry import trace
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.exporter.zipkin.json import ZipkinExporter
+from opentelemetry.instrumentation.flask import FlaskInstrumentor
+from opentelemetry.instrumentation.requests import RequestsInstrumentor
+from opentelemetry.propagate import inject
+
 app = Flask(__name__)
+
+# Logs estructurados
+logger = logging.getLogger()
+logHandler = logging.StreamHandler()
+formatter = jsonlogger.JsonFormatter('%(asctime)s %(levelname)s %(name)s %(message)s')
+logHandler.setFormatter(formatter)
+logger.addHandler(logHandler)
+logger.setLevel(logging.INFO)
+
+# OpenTelemetry y Zipkin
+zipkin_exporter = ZipkinExporter(endpoint="http://zipkin:9411/api/v2/spans")
+service_name = os.getenv("OTEL_SERVICE_NAME", "empleados-service")
+resource = Resource.create({"service.name": service_name})
+provider = TracerProvider(resource=resource)
+provider.add_span_processor(BatchSpanProcessor(zipkin_exporter))
+trace.set_tracer_provider(provider)
+
+# Métricas Prometheus
+metrics = PrometheusMetrics(app)
+
+# Instrumentar Flask
+FlaskInstrumentor().instrument_app(app)
+RequestsInstrumentor().instrument()
 
 # ======================================================
 # CONFIGURACIÓN SWAGGER
 # ======================================================
+
+JWT_SECRET = os.getenv("JWT_SECRET", "supersecreto")
+JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 
 swagger = Swagger(app, template={
     "swagger": "2.0",
@@ -29,7 +69,16 @@ swagger = Swagger(app, template={
         "version": "1.0.0"
     },
     "basePath": "/",
-    "schemes": ["http"]
+    "schemes": ["http"],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT Authorization header using the Bearer scheme. Example: 'Authorization: Bearer {token}'"
+        }
+    },
+    "security": [{"Bearer": []}]
 })
 
 # ======================================================
@@ -42,6 +91,46 @@ breaker = pybreaker.CircuitBreaker(
 )
 
 executor = ThreadPoolExecutor(max_workers=5)
+
+# ======================================================
+# PUBLICACIÓN DE EVENTOS (RabbitMQ)
+# ======================================================
+
+def publicar_evento(tipo_evento, datos_evento):
+    try:
+        connection = pika.BlockingConnection(pika.ConnectionParameters(
+            host=os.getenv("RABBITMQ_HOST", "message-broker"),
+            port=int(os.getenv("RABBITMQ_PORT", 5672)),
+            credentials=pika.PlainCredentials(
+                os.getenv("RABBITMQ_USER", "admin"),
+                os.getenv("RABBITMQ_PASS", "admin")
+            )
+        ))
+        channel = connection.channel()
+        
+        # Declarar el exchange
+        channel.exchange_declare(exchange='empleados_events', exchange_type='fanout', durable=True)
+        
+        trace_headers = {}
+        inject(trace_headers)
+
+        # Publicar el evento con contexto W3C para consumidores asincronos.
+        channel.basic_publish(
+            exchange='empleados_events',
+            routing_key='',
+            body=json.dumps(datos_evento),
+            properties=pika.BasicProperties(
+                delivery_mode=2,  # Persistente
+                type=tipo_evento,
+                headers=trace_headers
+            )
+        )
+        
+        connection.close()
+        print(f"Evento publicado: {tipo_evento}")
+        
+    except Exception as e:
+        print(f"Error publicando evento: {str(e)}")
 
 # ======================================================
 # CONEXIÓN POSTGRESQL
@@ -77,38 +166,6 @@ def get_rabbitmq_connection():
     )
     return pika.BlockingConnection(parameters)
 
-def publicar_evento(exchange, routing_key, mensaje):
-    """Publica un evento en RabbitMQ.
-    Si falla, registra el error pero NO revierte la BD."""
-    try:
-        connection = get_rabbitmq_connection()
-        channel = connection.channel()
-
-        # Declarar el exchange tipo fanout para fan-out pattern
-        channel.exchange_declare(
-            exchange=exchange,
-            exchange_type='fanout',
-            durable=True
-        )
-
-        channel.basic_publish(
-            exchange=exchange,
-            routing_key=routing_key,
-            body=json.dumps(mensaje),
-            properties=pika.BasicProperties(
-                delivery_mode=2,  # Mensaje persistente
-                content_type='application/json'
-            )
-        )
-
-        connection.close()
-        print(f"[EVENTO] Publicado: {exchange} -> {json.dumps(mensaje)}")
-        return True
-
-    except Exception as e:
-        print(f"[ERROR] No se pudo publicar evento {exchange}: {str(e)}")
-        return False
-
 
 # ======================================================
 # RESPUESTAS ESTÁNDAR
@@ -121,30 +178,76 @@ def respuesta_error(mensaje, status=400):
     return jsonify({"success": False, "message": mensaje, "data": None}), status
 
 # ======================================================
+# AUTENTICACIÓN Y RBAC
+# ======================================================
+
+def obtener_token_autorizacion():
+    auth_header = request.headers.get('Authorization', '')
+    if not auth_header or not auth_header.startswith('Bearer '):
+        return None
+    return auth_header.split(' ', 1)[1].strip()
+
+
+def validar_token(token):
+    payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    return payload
+
+
+def requerir_rol(*roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            token = obtener_token_autorizacion()
+            if not token:
+                return respuesta_error('Authorization header missing or malformed', 401)
+            try:
+                payload = validar_token(token)
+            except jwt.ExpiredSignatureError:
+                return respuesta_error('Token expirado', 401)
+            except jwt.InvalidTokenError:
+                return respuesta_error('Token inválido', 401)
+
+            if payload.get('role') not in roles:
+                return respuesta_error('Permiso denegado', 403)
+
+            g.user = payload.get('sub')
+            g.role = payload.get('role')
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+# ======================================================
 # VALIDACIÓN DE DEPARTAMENTO (Resiliente)
 # ======================================================
 
-def _llamar_servicio_departamentos(departamento_id):
+DEPARTAMENTOS_SERVICE_URL = os.getenv("DEPARTAMENTOS_SERVICE_URL", "http://departamentos-service:8081")
+
+def _llamar_servicio_departamentos(departamento_id, auth_header):
     return requests.get(
-        f"http://departamentos-service:8081/departamentos/{departamento_id}",
+        f"{DEPARTAMENTOS_SERVICE_URL}/departamentos/{departamento_id}",
+        headers={"Authorization": auth_header} if auth_header else {},
         timeout=3
     )
 
 def validar_departamento(departamento_id, retries=3):
+    auth_header = request.headers.get("Authorization")
 
     @breaker
     def llamada_con_breaker():
-        return _llamar_servicio_departamentos(departamento_id)
+        return _llamar_servicio_departamentos(departamento_id, auth_header)
 
     for intento in range(retries):
         try:
-            future = executor.submit(llamada_con_breaker)
+            ctx = copy_context()
+            future = executor.submit(ctx.run, llamada_con_breaker)
             response = future.result()
 
             if response.status_code == 200:
                 return True
             if response.status_code == 404:
                 return False
+            if response.status_code == 401:
+                return "unauthorized"
 
             return False
 
@@ -157,10 +260,20 @@ def validar_departamento(departamento_id, retries=3):
     return None
 
 # ======================================================
+# GET /health
+# ======================================================
+
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "ok"}), 200
+
+
+# ======================================================
 # POST /empleados
 # ======================================================
 
 @app.route('/empleados', methods=['POST'])
+@requerir_rol('ADMIN')
 def registrar_empleado():
     """
     Registrar un nuevo empleado
@@ -198,6 +311,15 @@ def registrar_empleado():
               type: string
               format: date
               example: "2024-01-01"
+            estado:
+              type: string
+              enum: ["ACTIVO", "EN_VACACIONES", "RETIRADO"]
+              default: "ACTIVO"
+              example: "ACTIVO"
+            password:
+              type: string
+              description: "Contraseña inicial opcional para el usuario asociado"
+              example: "Pass1234"
     responses:
       201:
         description: Empleado registrado correctamente
@@ -220,6 +342,9 @@ def registrar_empleado():
 
     validacion = validar_departamento(data['departamentoId'])
 
+    if validacion == "unauthorized":
+        return respuesta_error("Token inválido o faltante para el servicio de departamentos", 401)
+
     if validacion is False:
         return respuesta_error("El departamento no existe", 400)
 
@@ -236,29 +361,39 @@ def registrar_empleado():
 
         emp_id = str(uuid.uuid4())
 
+        estado = data.get('estado', 'ACTIVO')
+        if estado not in ['ACTIVO', 'EN_VACACIONES', 'RETIRADO']:
+            return respuesta_error("Estado inválido. Valores permitidos: ACTIVO, EN_VACACIONES, RETIRADO", 400)
+
         cur.execute("""
-            INSERT INTO empleados (id, cedula, nombre, email, departamento_id, fecha_ingreso)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO empleados (id, cedula, nombre, email, departamento_id, fecha_ingreso, estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
         """, (
             emp_id,
             data['cedula'],
             data['nombre'],
             data['email'],
             data['departamentoId'],
-            data['fechaIngreso']
+            data['fechaIngreso'],
+            estado
         ))
 
         conn.commit()
 
-        # Publicar evento de creación (Reto 3)
-        evento = {
-            "id": emp_id,
-            "nombre": data['nombre'],
-            "email": data['email'],
-            "departamentoId": data['departamentoId'],
-            "fechaIngreso": data['fechaIngreso']
+        # Publicar evento de empleado creado
+        event_data = {
+            'id': emp_id,
+            'cedula': data['cedula'],
+            'nombre': data['nombre'],
+            'email': data['email'],
+            'departamentoId': data['departamentoId'],
+            'fechaIngreso': data['fechaIngreso'],
+            'estado': estado
         }
-        publicar_evento("empleado.creado", "", evento)
+        if 'password' in data and data['password']:
+            event_data['password'] = data['password']
+
+        publicar_evento('empleado.creado', event_data)
 
         return respuesta_exitosa("Empleado registrado", {
             "id": emp_id,
@@ -275,69 +410,11 @@ def registrar_empleado():
 
 
 # ======================================================
-# DELETE /empleados/{id} (Reto 3)
-# ======================================================
-
-@app.route('/empleados/<id>', methods=['DELETE'])
-def eliminar_empleado(id):
-    """
-    Eliminar un empleado por ID
-    ---
-    tags:
-      - Empleados
-    parameters:
-      - name: id
-        in: path
-        type: string
-        required: true
-        description: ID del empleado
-    responses:
-      200:
-        description: Empleado eliminado correctamente
-      404:
-        description: Empleado no existe
-    """
-    conn = get_db()
-    cur = conn.cursor()
-
-    try:
-        cur.execute("""
-            SELECT id, nombre, email
-            FROM empleados WHERE id=%s
-        """, (id,))
-
-        row = cur.fetchone()
-
-        if not row:
-            return respuesta_error("Empleado no existe", 404)
-
-
-        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
-        conn.commit()
-
-        evento = {
-            "id": row[0],
-            "nombre": row[1],
-            "email": row[2]
-        }
-        publicar_evento("empleado.eliminado", "", evento)
-
-        return respuesta_exitosa("Empleado eliminado", evento)
-
-    except Exception as e:
-        conn.rollback()
-        return respuesta_error(str(e), 500)
-
-    finally:
-        cur.close()
-        conn.close()
-
-
-# ======================================================
 # GET /empleados/{id}
 # ======================================================
 
 @app.route('/empleados/<id>', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
 def obtener_empleado(id):
     """
     Obtener empleado por ID
@@ -361,7 +438,7 @@ def obtener_empleado(id):
     cur = conn.cursor()
 
     cur.execute("""
-        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso
+        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
         FROM empleados WHERE id=%s
     """, (id,))
 
@@ -378,14 +455,161 @@ def obtener_empleado(id):
         "nombre": row[2],
         "email": row[3],
         "departamentoId": row[4],
-        "fechaIngreso": row[5].isoformat()
+        "fechaIngreso": row[5].isoformat(),
+        "estado": row[6]
     })
+
+
+# ======================================================
+# PUT /empleados/{id}
+# ======================================================
+
+@app.route('/empleados/<id>', methods=['PUT'])
+@requerir_rol('ADMIN')
+def actualizar_empleado(id):
+    data = request.get_json()
+    if not data:
+        return respuesta_error("El cuerpo es obligatorio")
+
+    campos_permitidos = {
+        'cedula': 'cedula',
+        'nombre': 'nombre',
+        'email': 'email',
+        'departamentoId': 'departamento_id',
+        'fechaIngreso': 'fecha_ingreso',
+        'estado': 'estado'
+    }
+    cambios = {campo: data[campo] for campo in campos_permitidos if campo in data}
+    if not cambios:
+        return respuesta_error("No hay campos validos para actualizar")
+
+    if 'estado' in cambios and cambios['estado'] not in ['ACTIVO', 'EN_VACACIONES', 'RETIRADO']:
+        return respuesta_error("Estado invalido. Valores permitidos: ACTIVO, EN_VACACIONES, RETIRADO", 400)
+
+    if 'departamentoId' in cambios:
+        validacion = validar_departamento(cambios['departamentoId'])
+        if validacion == "unauthorized":
+            return respuesta_error("Token invalido o faltante para el servicio de departamentos", 401)
+        if validacion is False:
+            return respuesta_error("El departamento no existe", 400)
+        if validacion is None:
+            return respuesta_error("Servicio de departamentos no disponible", 503)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("SELECT 1 FROM empleados WHERE id=%s", (id,))
+        if not cur.fetchone():
+            return respuesta_error("Empleado no existe", 404)
+
+        assignments = []
+        values = []
+        for campo_api, valor in cambios.items():
+            assignments.append(f"{campos_permitidos[campo_api]}=%s")
+            values.append(valor)
+        values.append(id)
+
+        cur.execute(f"UPDATE empleados SET {', '.join(assignments)} WHERE id=%s", values)
+        conn.commit()
+
+        cur.execute("""
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE id=%s
+        """, (id,))
+        row = cur.fetchone()
+
+        return respuesta_exitosa("Empleado actualizado", {
+            "id": row[0],
+            "cedula": row[1],
+            "nombre": row[2],
+            "email": row[3],
+            "departamentoId": row[4],
+            "fechaIngreso": row[5].isoformat(),
+            "estado": row[6]
+        })
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+    finally:
+        cur.close()
+        conn.close()
+
+# ======================================================
+# DELETE /empleados/{id}
+# ======================================================
+
+@app.route('/empleados/<id>', methods=['DELETE'])
+@requerir_rol('ADMIN')
+def eliminar_empleado(id):
+    """
+    Eliminar empleado por ID
+    ---
+    tags:
+      - Empleados
+    parameters:
+      - name: id
+        in: path
+        type: string
+        required: true
+        description: ID del empleado
+    responses:
+      200:
+        description: Empleado eliminado correctamente
+      404:
+        description: Empleado no existe
+      500:
+        description: Error interno del servidor
+    """
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        # Verificar que el empleado existe y obtener sus datos
+        cur.execute("""
+            SELECT cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE id=%s
+        """, (id,))
+        
+        row = cur.fetchone()
+        if not row:
+            return respuesta_error("Empleado no existe", 404)
+        
+        # Guardar datos para el evento
+        empleado_data = {
+            'id': id,
+            'cedula': row[0],
+            'nombre': row[1],
+            'email': row[2],
+            'departamentoId': row[3],
+            'fechaIngreso': row[4].isoformat(),
+            'estado': row[5]
+        }
+        
+        # Eliminar el empleado
+        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
+        conn.commit()
+        
+        # Publicar evento de empleado eliminado
+        publicar_evento('empleado.eliminado', empleado_data)
+        
+        return respuesta_exitosa("Empleado eliminado correctamente")
+        
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+    
+    finally:
+        cur.close()
+        conn.close()
 
 # ======================================================
 # GET /empleados (Paginado)
 # ======================================================
 
 @app.route('/empleados', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
 def listar_empleados():
     """
     Listar empleados con paginación
@@ -426,7 +650,7 @@ def listar_empleados():
         total_items = cur.fetchone()[0]
 
         cur.execute("""
-            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
             FROM empleados
             ORDER BY id
             LIMIT %s OFFSET %s
@@ -438,7 +662,8 @@ def listar_empleados():
             "nombre": r[2],
             "email": r[3],
             "departamentoId": r[4],
-            "fechaIngreso": r[5].isoformat()
+            "fechaIngreso": r[5].isoformat(),
+            "estado": r[6]
         } for r in cur.fetchall()]
 
         total_pages = (total_items + size - 1) // size
@@ -477,12 +702,60 @@ def init_db():
             nombre VARCHAR(100) NOT NULL,
             email VARCHAR(100) NOT NULL,
             departamento_id VARCHAR(20) NOT NULL,
-            fecha_ingreso DATE NOT NULL
+            fecha_ingreso DATE NOT NULL,
+            estado VARCHAR(20) DEFAULT 'ACTIVO' CHECK (estado IN ('ACTIVO', 'EN_VACACIONES', 'RETIRADO'))
         );
     """)
+    cur.execute("ALTER TABLE empleados ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'ACTIVO';")
+    cur.execute("UPDATE empleados SET estado='ACTIVO' WHERE estado IS NULL;")
     conn.commit()
     cur.close()
     conn.close()
+
+# ======================================================
+# CONSUMIDOR DE EVENTOS (RabbitMQ)
+# ======================================================
+
+def iniciar_consumidor():
+    def callback(ch, method, properties, body):
+        try:
+            datos = json.loads(body)
+            tipo = datos.get('tipo')
+            if tipo == 'empleado.estado.cambiado':
+                emp_id = datos.get('empleado_id')
+                nuevo_estado = datos.get('nuevoEstado')
+                
+                conn = get_db()
+                cur = conn.cursor()
+                cur.execute("UPDATE empleados SET estado=%s WHERE id=%s", (nuevo_estado, emp_id))
+                conn.commit()
+                cur.close()
+                conn.close()
+                print(f"[CONSUMER] Estado de empleado {emp_id} actualizado a {nuevo_estado}")
+            
+            ch.basic_ack(delivery_tag=method.delivery_tag)
+        except Exception as e:
+            print(f"[CONSUMER] Error procesando mensaje: {str(e)}")
+            ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
+
+    try:
+        connection = get_rabbitmq_connection()
+        channel = connection.channel()
+        
+        # Declarar el exchange (debe coincidir)
+        channel.exchange_declare(exchange='empleados_events', exchange_type='fanout', durable=True)
+        
+        # Cola exclusiva para este consumidor
+        result = channel.queue_declare(queue='', exclusive=True)
+        queue_name = result.method.queue
+        
+        channel.queue_bind(exchange='empleados_events', queue=queue_name)
+        
+        channel.basic_consume(queue=queue_name, on_message_callback=callback)
+        print("[CONSUMER] Escuchando eventos en empleados_events...")
+        channel.start_consuming()
+    except Exception as e:
+        print(f"[CONSUMER] Error en el consumidor: {str(e)}")
 
 # ======================================================
 # MAIN
@@ -490,4 +763,11 @@ def init_db():
 
 if __name__ == '__main__':
     init_db()
-    app.run(host='0.0.0.0', port=80, debug=True)
+    
+    # Iniciar consumidor en un hilo separado
+    import threading
+    t = threading.Thread(target=iniciar_consumidor)
+    t.daemon = True
+    t.start()
+    
+    app.run(host='0.0.0.0', port=80)

@@ -5,15 +5,17 @@ using RabbitMQ.Client.Events;
 using NotificacionesService.Data;
 using NotificacionesService.DTOs;
 using NotificacionesService.Models;
+using System.Diagnostics;
 
 namespace NotificacionesService.Services;
 
 /// <summary>
 /// Servicio en background que consume eventos de RabbitMQ
-/// Escucha los eventos empleado.creado y empleado.eliminado
+/// Escucha los eventos de empleados y usuarios (Seguridad)
 /// </summary>
 public class RabbitMQConsumerService : BackgroundService
 {
+    private static readonly ActivitySource ActivitySource = new("NotificacionesService");
     private readonly ILogger<RabbitMQConsumerService> _logger;
     private readonly IServiceProvider _serviceProvider;
     private readonly IConfiguration _configuration;
@@ -22,12 +24,11 @@ public class RabbitMQConsumerService : BackgroundService
     private IChannel? _channel;
 
     // Exchanges (deben coincidir con los de Python)
-    private const string EXCHANGE_EMPLEADO_CREADO = "empleado.creado";
-    private const string EXCHANGE_EMPLEADO_ELIMINADO = "empleado.eliminado";
+    private const string EXCHANGE_EMPLEADOS = "empleados_events";
+    private const string EXCHANGE_USUARIOS = "usuario_events";
 
     // Colas exclusivas de este servicio
-    private const string QUEUE_NOTIF_CREADO = "notificaciones.empleado.creado";
-    private const string QUEUE_NOTIF_ELIMINADO = "notificaciones.empleado.eliminado";
+    private const string QUEUE_NOTIFICACIONES = "notificaciones.general.queue";
 
     public RabbitMQConsumerService(
         ILogger<RabbitMQConsumerService> logger,
@@ -41,7 +42,7 @@ public class RabbitMQConsumerService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        _logger.LogInformation("[RABBITMQ] Iniciando consumidor de eventos...");
+        _logger.LogInformation("[RABBITMQ] Iniciando consumidor de eventos (V2 - Actualizado)...");
 
         // Esperar a que RabbitMQ esté disponible
         await WaitForRabbitMQ(stoppingToken);
@@ -70,7 +71,7 @@ public class RabbitMQConsumerService : BackgroundService
             Password = password
         };
 
-        var maxRetries = 10;
+        var maxRetries = 15;
         var retryCount = 0;
 
         while (retryCount < maxRetries && !stoppingToken.IsCancellationRequested)
@@ -99,130 +100,214 @@ public class RabbitMQConsumerService : BackgroundService
 
         _channel = await _connection.CreateChannelAsync();
 
-        // Declarar exchanges tipo fanout (igual que en Python y Java)
-        await _channel.ExchangeDeclareAsync(EXCHANGE_EMPLEADO_CREADO, ExchangeType.Fanout, durable: true);
-        await _channel.ExchangeDeclareAsync(EXCHANGE_EMPLEADO_ELIMINADO, ExchangeType.Fanout, durable: true);
+        // Declarar exchanges tipo fanout (deben coincidir con Python)
+        await _channel.ExchangeDeclareAsync(EXCHANGE_EMPLEADOS, ExchangeType.Fanout, durable: true);
+        await _channel.ExchangeDeclareAsync(EXCHANGE_USUARIOS, ExchangeType.Fanout, durable: true);
 
-        // Declarar colas
-        await _channel.QueueDeclareAsync(QUEUE_NOTIF_CREADO, durable: true, exclusive: false, autoDelete: false);
-        await _channel.QueueDeclareAsync(QUEUE_NOTIF_ELIMINADO, durable: true, exclusive: false, autoDelete: false);
+        // Declarar cola general para este servicio
+        await _channel.QueueDeclareAsync(QUEUE_NOTIFICACIONES, durable: true, exclusive: false, autoDelete: false);
 
-        // Binding: conectar colas a exchanges
-        await _channel.QueueBindAsync(QUEUE_NOTIF_CREADO, EXCHANGE_EMPLEADO_CREADO, string.Empty);
-        await _channel.QueueBindAsync(QUEUE_NOTIF_ELIMINADO, EXCHANGE_EMPLEADO_ELIMINADO, string.Empty);
+        // Binding: conectar cola a ambos exchanges
+        await _channel.QueueBindAsync(QUEUE_NOTIFICACIONES, EXCHANGE_EMPLEADOS, string.Empty);
+        await _channel.QueueBindAsync(QUEUE_NOTIFICACIONES, EXCHANGE_USUARIOS, string.Empty);
 
-        // Configurar consumidores
-        var consumerCreado = new AsyncEventingBasicConsumer(_channel);
-        consumerCreado.ReceivedAsync += OnEmpleadoCreadoReceived;
-        await _channel.BasicConsumeAsync(QUEUE_NOTIF_CREADO, autoAck: false, consumer: consumerCreado);
+        // Configurar consumidor único
+        var consumer = new AsyncEventingBasicConsumer(_channel);
+        consumer.ReceivedAsync += OnMessageReceived;
+        
+        await _channel.BasicConsumeAsync(QUEUE_NOTIFICACIONES, autoAck: false, consumer: consumer);
 
-        var consumerEliminado = new AsyncEventingBasicConsumer(_channel);
-        consumerEliminado.ReceivedAsync += OnEmpleadoEliminadoReceived;
-        await _channel.BasicConsumeAsync(QUEUE_NOTIF_ELIMINADO, autoAck: false, consumer: consumerEliminado);
-
-        _logger.LogInformation("[RABBITMQ] Consumidores configurados. Escuchando eventos...");
+        _logger.LogInformation("[RABBITMQ] Consumidor configurado para {Ex1} y {Ex2}. Escuchando...", EXCHANGE_EMPLEADOS, EXCHANGE_USUARIOS);
     }
 
-    private async Task OnEmpleadoCreadoReceived(object sender, BasicDeliverEventArgs ea)
+    private async Task OnMessageReceived(object sender, BasicDeliverEventArgs ea)
     {
         try
         {
             var body = ea.Body.ToArray();
             var json = Encoding.UTF8.GetString(body);
             
-            _logger.LogInformation("[EVENTO] Recibido empleado.creado: {Json}", json);
-
-            var evento = JsonSerializer.Deserialize<EmpleadoCreadoEvent>(json);
-            if (evento == null)
+            // Intentar detectar el tipo de evento
+            var baseEvent = JsonSerializer.Deserialize<JsonElement>(json);
+            string? eventType = null;
+            
+            if (baseEvent.TryGetProperty("tipo", out var tipoProp))
             {
-                _logger.LogWarning("[EVENTO] No se pudo deserializar el evento empleado.creado");
-                await _channel!.BasicAckAsync(ea.DeliveryTag, false);
-                return;
+                eventType = tipoProp.GetString();
+            }
+            else if (!string.IsNullOrEmpty(ea.BasicProperties.Type))
+            {
+                eventType = ea.BasicProperties.Type;
             }
 
-            // Crear notificación de bienvenida
-            var notificacion = new Notificacion
+            _logger.LogInformation("[EVENTO] Recibido {Type}: {Json}", eventType ?? "DESCONOCIDO", json);
+
+            using var activity = StartConsumerActivity(ea, eventType);
+
+            switch (eventType)
             {
-                Id = Guid.NewGuid().ToString(),
-                Tipo = "BIENVENIDA",
-                Destinatario = evento.Email,
-                Mensaje = $"Bienvenido {evento.Nombre} a la empresa. Tu cuenta ha sido creada exitosamente.",
-                FechaEnvio = DateTime.UtcNow,
-                EmpleadoId = evento.Id
-            };
-
-            // Guardar en BD
-            using var scope = _serviceProvider.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<NotificacionesDbContext>();
-            dbContext.Notificaciones.Add(notificacion);
-            await dbContext.SaveChangesAsync();
-
-            // Simular envío de notificación (log estructurado)
-            _logger.LogInformation(
-                "[NOTIFICACIÓN] Tipo: {Tipo} | Para: {Email} | Mensaje: \"{Mensaje}\"",
-                notificacion.Tipo,
-                notificacion.Destinatario,
-                notificacion.Mensaje);
+                case "empleado.creado":
+                    await ProcesarEmpleadoCreado(json);
+                    break;
+                case "empleado.eliminado":
+                    await ProcesarEmpleadoEliminado(json);
+                    break;
+                case "usuario.creado":
+                case "usuario.recuperacion":
+                    await ProcesarUsuarioSeguridad(json);
+                    break;
+                case "vacaciones.programadas":
+                    await ProcesarVacacionesProgramadas(json);
+                    break;
+                case "empleado.estado.cambiado":
+                    await ProcesarEmpleadoEstadoCambiado(json);
+                    break;
+                default:
+                    _logger.LogWarning("[EVENTO] Tipo de evento no soportado: {Type}", eventType);
+                    break;
+            }
 
             await _channel!.BasicAckAsync(ea.DeliveryTag, false);
-            _logger.LogInformation("[EVENTO] Notificación de bienvenida registrada para: {Nombre}", evento.Nombre);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "[EVENTO] Error procesando empleado.creado");
+            _logger.LogError(ex, "[EVENTO] Error procesando mensaje");
+            // Nack con requeue true para reintentar si es error transitorio
             await _channel!.BasicNackAsync(ea.DeliveryTag, false, true);
         }
     }
 
-    private async Task OnEmpleadoEliminadoReceived(object sender, BasicDeliverEventArgs ea)
+    private async Task ProcesarVacacionesProgramadas(string json)
     {
-        try
+        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas recibidas: {Json}", json);
+        await Task.CompletedTask;
+    }
+
+    private async Task ProcesarEmpleadoEstadoCambiado(string json)
+    {
+        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado recibido: {Json}", json);
+        await Task.CompletedTask;
+    }
+
+    private static Activity? StartConsumerActivity(BasicDeliverEventArgs ea, string? eventType)
+    {
+        var parentContext = ExtractParentContext(ea);
+        var activityName = $"rabbitmq consume {eventType ?? "desconocido"}";
+        return parentContext == default
+            ? ActivitySource.StartActivity(activityName, ActivityKind.Consumer)
+            : ActivitySource.StartActivity(activityName, ActivityKind.Consumer, parentContext);
+    }
+
+    private static ActivityContext ExtractParentContext(BasicDeliverEventArgs ea)
+    {
+        var headers = ea.BasicProperties.Headers;
+        if (headers == null || !headers.TryGetValue("traceparent", out var traceparentValue))
         {
-            var body = ea.Body.ToArray();
-            var json = Encoding.UTF8.GetString(body);
-            
-            _logger.LogInformation("[EVENTO] Recibido empleado.eliminado: {Json}", json);
-
-            var evento = JsonSerializer.Deserialize<EmpleadoEliminadoEvent>(json);
-            if (evento == null)
-            {
-                _logger.LogWarning("[EVENTO] No se pudo deserializar el evento empleado.eliminado");
-                await _channel!.BasicAckAsync(ea.DeliveryTag, false);
-                return;
-            }
-
-            // Crear notificación de desvinculación
-            var notificacion = new Notificacion
-            {
-                Id = Guid.NewGuid().ToString(),
-                Tipo = "DESVINCULACION",
-                Destinatario = evento.Email,
-                Mensaje = $"Su cuenta ha sido desactivada. Gracias por su tiempo en la empresa, {evento.Nombre}.",
-                FechaEnvio = DateTime.UtcNow,
-                EmpleadoId = evento.Id
-            };
-
-            // Guardar en BD
-            using var scope = _serviceProvider.CreateScope();
-            var dbContext = scope.ServiceProvider.GetRequiredService<NotificacionesDbContext>();
-            dbContext.Notificaciones.Add(notificacion);
-            await dbContext.SaveChangesAsync();
-
-            // Simular envío de notificación (log estructurado)
-            _logger.LogInformation(
-                "[NOTIFICACIÓN] Tipo: {Tipo} | Para: {Email} | Mensaje: \"{Mensaje}\"",
-                notificacion.Tipo,
-                notificacion.Destinatario,
-                notificacion.Mensaje);
-
-            await _channel!.BasicAckAsync(ea.DeliveryTag, false);
-            _logger.LogInformation("[EVENTO] Notificación de desvinculación registrada para: {Nombre}", evento.Nombre);
+            return default;
         }
-        catch (Exception ex)
+
+        var traceparent = HeaderToString(traceparentValue);
+        if (string.IsNullOrWhiteSpace(traceparent))
         {
-            _logger.LogError(ex, "[EVENTO] Error procesando empleado.eliminado");
-            await _channel!.BasicNackAsync(ea.DeliveryTag, false, true);
+            return default;
         }
+
+        var tracestate = headers.TryGetValue("tracestate", out var tracestateValue)
+            ? HeaderToString(tracestateValue)
+            : null;
+
+        return ActivityContext.TryParse(traceparent, tracestate, out var context)
+            ? context
+            : default;
+    }
+
+    private static string? HeaderToString(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            byte[] bytes => Encoding.UTF8.GetString(bytes),
+            ReadOnlyMemory<byte> bytes => Encoding.UTF8.GetString(bytes.Span),
+            string text => text,
+            _ => value.ToString()
+        };
+    }
+
+    private async Task ProcesarEmpleadoCreado(string json)
+    {
+        var evento = JsonSerializer.Deserialize<EmpleadoCreadoEvent>(json);
+        if (evento == null) return;
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "BIENVENIDA",
+            Destinatario = evento.Email,
+            Mensaje = $"Bienvenido {evento.Nombre} a la empresa. Tu cuenta está siendo procesada.",
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = evento.Id
+        };
+
+        await GuardarNotificacion(notificacion);
+    }
+
+    private async Task ProcesarEmpleadoEliminado(string json)
+    {
+        var evento = JsonSerializer.Deserialize<EmpleadoEliminadoEvent>(json);
+        if (evento == null) return;
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "DESVINCULACION",
+            Destinatario = evento.Email,
+            Mensaje = $"Su cuenta ha sido desactivada. Gracias por su tiempo, {evento.Nombre}.",
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = evento.Id
+        };
+
+        await GuardarNotificacion(notificacion);
+    }
+
+    private async Task ProcesarUsuarioSeguridad(string json)
+    {
+        var evento = JsonSerializer.Deserialize<UsuarioEvent>(json);
+        if (evento == null) return;
+
+        string mensaje = evento.Tipo switch
+        {
+            "usuario.creado" => evento.NeedsPasswordReset == true 
+                ? $"Su usuario ha sido creado. Para activar su cuenta, utilice el token: {evento.Token}" 
+                : "Su usuario ha sido creado exitosamente.",
+            "usuario.recuperacion" => $"Solicitud de recuperación de contraseña. Use este token: {evento.Token}",
+            _ => "Notificación de seguridad recibida."
+        };
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "SEGURIDAD",
+            Destinatario = evento.Email,
+            Mensaje = mensaje,
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = evento.EmpleadoId ?? evento.Id ?? "SISTEMA"
+        };
+
+        await GuardarNotificacion(notificacion);
+    }
+
+    private async Task GuardarNotificacion(Notificacion notificacion)
+    {
+        using var scope = _serviceProvider.CreateScope();
+        var dbContext = scope.ServiceProvider.GetRequiredService<NotificacionesDbContext>();
+        dbContext.Notificaciones.Add(notificacion);
+        await dbContext.SaveChangesAsync();
+
+        _logger.LogInformation(
+            "[NOTIFICACIÓN GUARDADA] Tipo: {Tipo} | Para: {Email} | Mensaje: {Msj}",
+            notificacion.Tipo,
+            notificacion.Destinatario,
+            notificacion.Mensaje);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

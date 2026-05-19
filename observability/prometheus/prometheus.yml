@@ -1,0 +1,42 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['prometheus:9090']
+
+  - job_name: 'auth-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['auth-service:80']
+
+  - job_name: 'api-gateway'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['api-gateway:80']
+
+  - job_name: 'empleados-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['empleados-service:80']
+
+  - job_name: 'departamentos-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['departamentos-service:8081']
+
+  - job_name: 'notificaciones-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['notificaciones-service:8084']
+
+  - job_name: 'perfiles-service'
+    metrics_path: '/actuator/prometheus'
+    static_configs:
+      - targets: ['perfiles-service:8083']
+
+  - job_name: 'vacaciones-service'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['vacaciones-service:80']

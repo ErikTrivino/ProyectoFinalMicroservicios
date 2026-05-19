@@ -1,0 +1,17 @@
+apiVersion: 1
+notifiers:
+  - name: Discord Webhook
+    uid: discord-webhook
+    type: webhook
+    isDefault: false
+    sendReminder: false
+    disableResolveMessage: false
+    settings:
+      url: 'https://discord.com/api/webhooks/1503957110277410869/xo9x6ijVQ1EBzv-brQLmONDBbFqDmzSeWwOaXb-WKhUr0_GXwFhO6lXnbHrHTKGs7JAS'
+      httpMethod: 'POST'
+      uploadImage: false
+      sendResolved: true
+      headers:
+        - name: 'Content-Type'
+          value: 'application/json'
+      body: '{"content":"[Grafana Alert] {{ .CommonLabels.alertname }} - {{ .CommonAnnotations.message }}"}'

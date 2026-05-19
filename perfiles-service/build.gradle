@@ -1,0 +1,107 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.1'
+    id 'io.spring.dependency-management' version '1.1.7'
+    id 'jacoco'                                           // Reto 6: Cobertura de código
+    id 'org.sonarqube' version '5.1.0.4882'               // Reto 6: Análisis de calidad
+}
+
+group = 'com.example'
+version = '0.0.1-SNAPSHOT'
+description = 'Demo project for Spring Boot'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    // Spring Boot Web (REST endpoints)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+
+    // Spring Boot Data JPA (base de datos)
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // Spring Boot AMQP (RabbitMQ)
+    implementation 'org.springframework.boot:spring-boot-starter-amqp'
+
+    // PostgreSQL Driver
+    runtimeOnly 'org.postgresql:postgresql'
+
+    // H2 (solo para tests o desarrollo local)
+    runtimeOnly 'com.h2database:h2'
+
+    // Swagger / OpenAPI
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0'
+
+    // JWT (una sola versión)
+    implementation 'io.jsonwebtoken:jjwt-api:0.12.3'
+    runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.12.3'
+    runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.12.3'
+
+    // Lombok
+    compileOnly 'org.projectlombok:lombok:1.18.30'
+    annotationProcessor 'org.projectlombok:lombok:1.18.30'
+    testCompileOnly 'org.projectlombok:lombok:1.18.30'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.30'
+
+    // MapStruct
+    implementation 'org.mapstruct:mapstruct:1.6.3'
+    annotationProcessor 'org.mapstruct:mapstruct-processor:1.6.3'
+
+    // Spring Security
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+
+    // Actuator (health check)
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+
+    // Validación
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Observabilidad: Prometheus, Tracing (OpenTelemetry + Zipkin), Logs Estructurados
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.micrometer:micrometer-tracing-bridge-otel'
+    implementation 'io.opentelemetry:opentelemetry-exporter-zipkin'
+    implementation 'net.logstash.logback:logstash-logback-encoder:7.4'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    finalizedBy jacocoTestReport  // Generar reporte después de tests
+}
+
+// ============================================================
+// JaCoCo - Configuración de cobertura (Reto 6)
+// ============================================================
+jacocoTestReport {
+    dependsOn test
+    reports {
+        xml.required = true       // Necesario para SonarQube
+        html.required = true      // Reporte visual
+        csv.required = false
+    }
+}
+
+// ============================================================
+// SonarQube - Configuración de análisis (Reto 6)
+// ============================================================
+sonar {
+    properties {
+        property "sonar.projectKey", "perfiles-service"
+        property "sonar.projectName", "Perfiles Service"
+        property "sonar.host.url", System.getenv("SONAR_HOST_URL") ?: "http://sonarqube:9000"
+        property "sonar.token", System.getenv("SONAR_TOKEN") ?: ""
+        property "sonar.java.coveragePlugin", "jacoco"
+        property "sonar.coverage.jacoco.xmlReportPaths", "${layout.buildDirectory.get()}/reports/jacoco/test/jacocoTestReport.xml"
+        property "sonar.sourceEncoding", "UTF-8"
+    }
+}
