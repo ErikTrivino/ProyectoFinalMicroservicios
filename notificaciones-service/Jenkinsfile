@@ -32,14 +32,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Obteniendo código fuente de ${SERVICE_NAME}..."
-                sh "mkdir -p ${SERVICE_NAME}"
-                sh "cp -r /var/jenkins_home/workspace-config/${SERVICE_NAME}/* ./${SERVICE_NAME}/"
-                sh "mkdir -p NotificacionesService.Tests"
-                sh "cp -r /var/jenkins_home/workspace-config/NotificacionesService.Tests/* ./NotificacionesService.Tests/"
-                sh "cp /var/jenkins_home/workspace-config/ProyectoFinalMicroservicios.sln . || true"
-                sh "cp -r /var/jenkins_home/workspace-config/pruebas-funcionales ./pruebas-funcionales || true"
-                sh "cp /var/jenkins_home/workspace-config/docker-compose.yml . || true"
-                sh "cp -r /var/jenkins_home/workspace-config/jenkins ./jenkins || true"
+                // Los archivos ya están en el workspace gracias al checkout SCM de Jenkins, no necesitamos copiar nada del volumen
                 sh 'ls -la'
             }
         }

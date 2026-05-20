@@ -32,10 +32,11 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Obteniendo código fuente de ${SERVICE_NAME}..."
-                sh "cp -r /var/jenkins_home/workspace-config/${SERVICE_NAME}/* ."
-                sh "cp -r /var/jenkins_home/workspace-config/pruebas-funcionales ./pruebas-funcionales || true"
-                sh "cp /var/jenkins_home/workspace-config/docker-compose.yml . || true"
-                sh "cp -r /var/jenkins_home/workspace-config/jenkins ./jenkins || true"
+                // Copiar desde la carpeta clonada en el workspace en lugar del volumen compartido para evitar archivos locales pesados
+                sh "cp -r ${SERVICE_NAME}/* ."
+                sh "cp -r pruebas-funcionales ./pruebas-funcionales || true"
+                sh "cp docker-compose.yml . || true"
+                sh "cp -r jenkins ./jenkins || true"
                 sh 'ls -la'
             }
         }
