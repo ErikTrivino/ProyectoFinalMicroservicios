@@ -277,10 +277,10 @@ public class RabbitMQConsumerService : BackgroundService
         string mensaje = evento.Tipo switch
         {
             "usuario.creado" => evento.NeedsPasswordReset == true 
-                ? $"Su usuario ha sido creado. Para activar su cuenta, utilice el token: {evento.Token}" 
-                : "Su usuario ha sido creado exitosamente.",
-            "usuario.recuperacion" => $"Solicitud de recuperación de contraseña. Use este token: {evento.Token}",
-            _ => "Notificación de seguridad recibida."
+                ? $"<h2>Bienvenido a la plataforma</h2><p>Su usuario ha sido creado exitosamente con el correo electrónico: <b>{evento.Email}</b>.</p><p><b>Pasos de activación:</b></p><ol><li>Acceda al sistema de autenticación.</li><li>Utilice el siguiente token temporal para establecer su contraseña inicial:</li></ol><blockquote><b>{evento.Token}</b></blockquote>" 
+                : $"<h2>Bienvenido a la plataforma</h2><p>Su usuario ha sido creado exitosamente con el correo electrónico: <b>{evento.Email}</b> y la contraseña inicial proporcionada.</p>",
+            "usuario.recuperacion" => $"<h2>Recuperación de Contraseña</h2><p>Hemos recibido una solicitud de recuperación de contraseña para su cuenta (<b>{evento.Email}</b>).</p><p>Utilice este token para restablecer su contraseña:</p><blockquote><b>{evento.Token}</b></blockquote>",
+            _ => "<p>Notificación de seguridad recibida.</p>"
         };
 
         var notificacion = new Notificacion
@@ -300,6 +300,8 @@ public class RabbitMQConsumerService : BackgroundService
     {
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<NotificacionesDbContext>();
+        var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
         dbContext.Notificaciones.Add(notificacion);
         await dbContext.SaveChangesAsync();
 
@@ -308,6 +310,17 @@ public class RabbitMQConsumerService : BackgroundService
             notificacion.Tipo,
             notificacion.Destinatario,
             notificacion.Mensaje);
+
+        // Enviar correo electrónico
+        string subject = notificacion.Tipo switch
+        {
+            "SEGURIDAD" => "Notificación de Seguridad / Credenciales",
+            "BIENVENIDA" => "¡Bienvenido a la empresa!",
+            "DESVINCULACION" => "Aviso de desvinculación",
+            _ => "Notificación del Sistema"
+        };
+        
+        await emailService.SendEmailAsync(notificacion.Destinatario, subject, notificacion.Mensaje);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
