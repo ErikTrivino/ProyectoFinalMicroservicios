@@ -29,7 +29,7 @@ contactPoints:
 policies:
   - orgId: 1
     receiver: Alertas Globales
-    group_by: ['alertname']
+    group_by: ['alertname', 'job']
     group_wait: 30s
     group_interval: 1m
     repeat_interval: 5m

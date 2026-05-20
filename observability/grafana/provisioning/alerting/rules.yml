@@ -15,21 +15,33 @@ groups:
               to: 0
             datasourceUid: prometheus
             model:
-              expr: count(up == 0)
+              expr: 'up{job=~"api-gateway|auth-service|empleados-service|departamentos-service|notificaciones-service|perfiles-service|vacaciones-service"}'
               intervalMs: 1000
               maxDataPoints: 43200
               refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
           - refId: C
             datasourceUid: __expr__
             model:
               conditions:
                 - evaluator:
-                    params: [0]
-                    type: gt
+                    params: [1]
+                    type: lt
                   operator:
                     type: and
                   query:
-                    params: [A]
+                    params: [C]
                   reducer:
                     params: []
                     type: last
@@ -37,17 +49,17 @@ groups:
               datasource:
                 type: __expr__
                 uid: __expr__
-              expression: A
+              expression: B
               intervalMs: 1000
               maxDataPoints: 43200
               refId: C
-              type: classic_conditions
+              type: threshold
         for: 1m
         noDataState: OK
         execErrState: Error
         annotations:
-          summary: "Uno o mas microservicios no responden a Prometheus."
-          message: "ALERTA CRITICA: Prometheus detecto uno o mas microservicios caidos.\n\nQue significa:\n- La metrica `up` esta en 0 para al menos un target.\n- La condicion se mantuvo durante 1 minuto.\n- El valor de la alerta representa la cantidad de targets caidos.\n\nComo identificar el servicio:\n1. Abre Prometheus: http://localhost:9090/targets\n2. Busca el target marcado como DOWN.\n3. Revisa contenedores: docker-compose ps\n4. Revisa logs: docker-compose logs --tail=100 <servicio>\n5. Reinicia si aplica: docker-compose up -d <servicio>"
+          summary: "El microservicio {{ $labels.job }} no responde a Prometheus."
+          message: "ALERTA CRITICA: el microservicio {{ $labels.job }} esta caido.\n\nQue significa:\n- La metrica `up` esta en 0 para el target {{ $labels.instance }}.\n- La condicion se mantuvo durante 1 minuto.\n\nComo investigar:\n1. Abre Prometheus: http://localhost:9090/targets\n2. Busca el target {{ $labels.job }} marcado como DOWN.\n3. Revisa contenedores: docker-compose ps\n4. Revisa logs: docker-compose logs --tail=100 {{ $labels.job }}\n5. Reinicia si aplica: docker-compose up -d {{ $labels.job }}"
         labels:
           severity: critical
 

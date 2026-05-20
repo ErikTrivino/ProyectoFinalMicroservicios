@@ -1,17 +1,34 @@
 apiVersion: 1
-notifiers:
-  - name: Discord Webhook
-    uid: discord-webhook
-    type: webhook
-    isDefault: false
-    sendReminder: false
-    disableResolveMessage: false
-    settings:
-      url: 'https://discord.com/api/webhooks/1503957110277410869/xo9x6ijVQ1EBzv-brQLmONDBbFqDmzSeWwOaXb-WKhUr0_GXwFhO6lXnbHrHTKGs7JAS'
-      httpMethod: 'POST'
-      uploadImage: false
-      sendResolved: true
-      headers:
-        - name: 'Content-Type'
-          value: 'application/json'
-      body: '{"content":"[Grafana Alert] {{ .CommonLabels.alertname }} - {{ .CommonAnnotations.message }}"}'
+contactPoints:
+  - orgId: 1
+    name: Alertas Globales
+    receivers:
+      - uid: discord-webhook
+        type: discord
+        disableResolveMessage: false
+        settings:
+          url: 'https://discord.com/api/webhooks/1504590730365108306/Y0aTc4CPTYtiHIILjxeGDoV4mUJVcfFM6yQoL92OVygbOryPJYbwe8j7_RHINF1zgfBI'
+      - uid: telegram-bot
+        type: telegram
+        disableResolveMessage: false
+        settings:
+          bottoken: '8505828838:AAENPPS0AQ7XBxCCO8PWJFdlZJPAgPEmFpU'
+          chatid: '1939066834'
+      - uid: slack-webhook
+        type: slack
+        disableResolveMessage: false
+        settings:
+          url: 'https://hooks.slack.com/services/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'
+      - uid: email-alert
+        type: email
+        disableResolveMessage: false
+        settings:
+          addresses: 'equipo@microservicios.local'
+
+policies:
+  - orgId: 1
+    receiver: Alertas Globales
+    group_by: ['alertname']
+    group_wait: 30s
+    group_interval: 1m
+    repeat_interval: 5m
