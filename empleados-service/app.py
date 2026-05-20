@@ -605,6 +605,88 @@ def eliminar_empleado(id):
         conn.close()
 
 # ======================================================
+# POST /empleados/{id}/offboard
+# ======================================================
+
+@app.route('/empleados/<id>/offboard', methods=['POST'])
+@requerir_rol('ADMIN')
+def offboarding_empleado(id):
+    """
+    Offboarding de un empleado
+    ---
+    tags:
+      - Empleados
+    parameters:
+      - name: id
+        in: path
+        type: string
+        required: true
+        description: ID del empleado
+    responses:
+      200:
+        description: Empleado retirado correctamente
+      400:
+        description: El empleado ya se encuentra retirado
+      404:
+        description: Empleado no existe
+      500:
+        description: Error interno del servidor
+    """
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    try:
+        # Verificar que el empleado existe y obtener sus datos
+        cur.execute("""
+            SELECT cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE id=%s
+        """, (id,))
+        
+        row = cur.fetchone()
+        if not row:
+            return respuesta_error("Empleado no existe", 404)
+            
+        estado_actual = row[5]
+        if estado_actual == 'RETIRADO':
+            return respuesta_error("El empleado ya se encuentra retirado", 400)
+        
+        # Guardar datos para el evento
+        empleado_data = {
+            'id': id,
+            'cedula': row[0],
+            'nombre': row[1],
+            'email': row[2],
+            'departamentoId': row[3],
+            'fechaIngreso': row[4].isoformat(),
+            'estado': 'RETIRADO'
+        }
+        
+        # Actualizar estado a RETIRADO
+        cur.execute("UPDATE empleados SET estado='RETIRADO' WHERE id=%s", (id,))
+        
+        # Registro de auditoría de la fecha y hora de la desactivación
+        cur.execute("""
+            INSERT INTO auditoria_offboarding (empleado_id, detalles)
+            VALUES (%s, %s)
+        """, (id, "Offboarding completado: credenciales y accesos desactivados permanentemente"))
+        
+        conn.commit()
+        
+        # Publicar evento de empleado eliminado para que auth-service desactive las credenciales permanentemente
+        publicar_evento('empleado.eliminado', empleado_data)
+        
+        return respuesta_exitosa("Empleado retirado y accesos desactivados permanentemente")
+        
+    except Exception as e:
+        conn.rollback()
+        return respuesta_error(str(e), 500)
+    
+    finally:
+        cur.close()
+        conn.close()
+
+# ======================================================
 # GET /empleados (Paginado)
 # ======================================================
 
@@ -708,6 +790,16 @@ def init_db():
     """)
     cur.execute("ALTER TABLE empleados ADD COLUMN IF NOT EXISTS estado VARCHAR(20) DEFAULT 'ACTIVO';")
     cur.execute("UPDATE empleados SET estado='ACTIVO' WHERE estado IS NULL;")
+    
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS auditoria_offboarding (
+            id SERIAL PRIMARY KEY,
+            empleado_id VARCHAR(36) NOT NULL,
+            fecha_desactivacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            detalles TEXT
+        );
+    """)
+    
     conn.commit()
     cur.close()
     conn.close()
