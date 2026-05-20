@@ -45,7 +45,7 @@ credentials:
           - string:
               scope: GLOBAL
               id: "sonar-token"
-              secret: "sqa_a612e00c3da40ce575897d4d91c08dce073d4985"
+              secret: "squ_d65acf0d900f6984d7e1bb607c3f06b097a3bcfa"
               description: "SonarQube Authentication Token"
 
 # ============================================================
