@@ -59,13 +59,13 @@ jobs:
       pipelineJob('empleados-service-pipeline') {
         description('Pipeline CI para empleados-service (Python/Flask)')
         definition {
-          cpsScmFlowDefinition {
+          cpsScm {
             scm {
               git {
                 remote {
                   url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
                 }
-                branches('*/main')
+                branch('*/main')
               }
             }
             scriptPath('empleados-service/Jenkinsfile')
@@ -80,13 +80,13 @@ jobs:
       pipelineJob('perfiles-service-pipeline') {
         description('Pipeline CI para perfiles-service (Java/Spring Boot)')
         definition {
-          cpsScmFlowDefinition {
+          cpsScm {
             scm {
               git {
                 remote {
                   url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
                 }
-                branches('*/main')
+                branch('*/main')
               }
             }
             scriptPath('perfiles-service/Jenkinsfile')
@@ -101,13 +101,13 @@ jobs:
       pipelineJob('auth-service-pipeline') {
         description('Pipeline CI para auth-service (Python/Flask)')
         definition {
-          cpsScmFlowDefinition {
+          cpsScm {
             scm {
               git {
                 remote {
                   url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
                 }
-                branches('*/main')
+                branch('*/main')
               }
             }
             scriptPath('auth-service/Jenkinsfile')
@@ -122,13 +122,13 @@ jobs:
       pipelineJob('departamentos-service-pipeline') {
         description('Pipeline CI para departamentos-service (Python/Flask)')
         definition {
-          cpsScmFlowDefinition {
+          cpsScm {
             scm {
               git {
                 remote {
                   url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
                 }
-                branches('*/main')
+                branch('*/main')
               }
             }
             scriptPath('departamentos-service/Jenkinsfile')
@@ -143,13 +143,13 @@ jobs:
       pipelineJob('notificaciones-service-pipeline') {
         description('Pipeline CI para notificaciones-service (.NET 10)')
         definition {
-          cpsScmFlowDefinition {
+          cpsScm {
             scm {
               git {
                 remote {
                   url('https://github.com/ErikTrivino/ProyectoFinalMicroservicios.git')
                 }
-                branches('*/main')
+                branch('*/main')
               }
             }
             scriptPath('notificaciones-service/Jenkinsfile')
