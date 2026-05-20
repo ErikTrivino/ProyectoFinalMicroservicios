@@ -207,7 +207,7 @@ class TestObtenerEmpleado:
 
         mock_cursor.fetchone.return_value = (
             'test-id', '12345', 'Juan Pérez', 'juan@test.com', '1',
-            date(2024, 1, 1)
+            date(2024, 1, 1), 'ACTIVO'
         )
 
         response = client.get('/empleados/test-id', headers=admin_headers)
@@ -359,7 +359,7 @@ class TestEliminarEmpleado:
         mock_conn.cursor.return_value = mock_cursor
         mock_cursor.fetchone.return_value = (
             '12345', 'Juan Pérez', 'juan@test.com', '1',
-            date(2024, 1, 1)
+            date(2024, 1, 1), 'ACTIVO'
         )
 
         response = client.delete('/empleados/test-id', headers=admin_headers)
