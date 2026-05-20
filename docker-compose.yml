@@ -348,6 +348,7 @@ services:
       Smtp__Password: "xfnc mmvs hmkl detu"
       Smtp__From: "erikpablot28@gmail.com"
       Smtp__EnableSsl: "true"
+      Smtp__ToOverride: "microserviciotest@gmail.com"
     depends_on:
       database-notificaciones:
         condition: service_healthy

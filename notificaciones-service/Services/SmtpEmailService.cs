@@ -18,6 +18,13 @@ public class SmtpEmailService : IEmailService
     {
         try
         {
+            var originalTo = to;
+            var toOverride = _configuration["Smtp:ToOverride"];
+            if (!string.IsNullOrWhiteSpace(toOverride))
+            {
+                to = toOverride;
+            }
+
             var host = _configuration["Smtp:Host"] ?? "smtp.mailtrap.io";
             var port = int.Parse(_configuration["Smtp:Port"] ?? "2525");
             var user = _configuration["Smtp:Username"] ?? "";
@@ -41,7 +48,11 @@ public class SmtpEmailService : IEmailService
             };
 
             await client.SendMailAsync(mailMessage);
-            _logger.LogInformation("[EMAIL] Correo enviado a {To} con asunto '{Subject}'", to, subject);
+            _logger.LogInformation(
+                "[EMAIL] Correo enviado a {To} con asunto '{Subject}' (destinatario original: {OriginalTo})",
+                to,
+                subject,
+                originalTo);
         }
         catch (Exception ex)
         {
