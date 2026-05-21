@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY package*.json ./
 
-RUN pnpm install --prod --ignore-scripts
+RUN npm install --omit=dev --ignore-scripts
 
 COPY . .
 

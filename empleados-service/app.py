@@ -461,6 +461,57 @@ def obtener_empleado(id):
 
 
 # ======================================================
+# GET /empleados/cedula/{cedula}
+# ======================================================
+
+@app.route('/empleados/cedula/<cedula>', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
+def obtener_empleado_por_cedula(cedula):
+    """
+    Obtener empleado por Cédula
+    ---
+    tags:
+      - Empleados
+    parameters:
+      - name: cedula
+        in: path
+        type: string
+        required: true
+        description: Cédula del empleado
+    responses:
+      200:
+        description: Empleado encontrado
+      404:
+        description: Empleado no existe
+    """
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
+        FROM empleados WHERE cedula=%s
+    """, (cedula,))
+
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row:
+        return respuesta_error("Empleado no existe", 404)
+
+    return respuesta_exitosa("Empleado encontrado", {
+        "id": row[0],
+        "cedula": row[1],
+        "nombre": row[2],
+        "email": row[3],
+        "departamentoId": row[4],
+        "fechaIngreso": row[5].isoformat(),
+        "estado": row[6]
+    })
+
+
+# ======================================================
 # PUT /empleados/{id}
 # ======================================================
 

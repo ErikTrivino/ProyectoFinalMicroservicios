@@ -179,14 +179,65 @@ public class RabbitMQConsumerService : BackgroundService
 
     private async Task ProcesarVacacionesProgramadas(string json)
     {
-        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas recibidas: {Json}", json);
-        await Task.CompletedTask;
+        var evento = JsonSerializer.Deserialize<JsonElement>(json);
+        var email = evento.TryGetProperty("email", out var emailProp) ? emailProp.GetString() : null;
+        var empleadoId = evento.TryGetProperty("empleado_id", out var idProp) ? idProp.GetString() : "SISTEMA";
+        var fechaInicio = evento.TryGetProperty("fecha_inicio", out var fiProp) ? fiProp.GetString() : "";
+        var fechaFin = evento.TryGetProperty("fecha_fin", out var ffProp) ? ffProp.GetString() : "";
+
+        if (string.IsNullOrEmpty(email))
+        {
+            _logger.LogWarning("[NOTIFICACION] Evento vacaciones.programadas ignorado por falta de email.");
+            return;
+        }
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "VACACIONES",
+            Destinatario = email,
+            Mensaje = $"Tus vacaciones han sido programadas exitosamente. Período: {fechaInicio} al {fechaFin}.",
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = empleadoId
+        };
+
+        await GuardarNotificacion(notificacion);
+        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas procesadas y guardadas para {Email}", email);
     }
 
     private async Task ProcesarEmpleadoEstadoCambiado(string json)
     {
-        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado recibido: {Json}", json);
-        await Task.CompletedTask;
+        var evento = JsonSerializer.Deserialize<JsonElement>(json);
+        var email = evento.TryGetProperty("email", out var emailProp) ? emailProp.GetString() : null;
+        var empleadoId = evento.TryGetProperty("empleado_id", out var idProp) ? idProp.GetString() : "SISTEMA";
+        var nuevoEstado = evento.TryGetProperty("nuevoEstado", out var neProp) ? neProp.GetString() : "";
+        var motivo = evento.TryGetProperty("motivo", out var mProp) ? mProp.GetString() : "";
+
+        if (string.IsNullOrEmpty(email))
+        {
+            _logger.LogWarning("[NOTIFICACION] Evento empleado.estado.cambiado ignorado por falta de email.");
+            return;
+        }
+
+        string mensaje = nuevoEstado switch
+        {
+            "EN_VACACIONES" => "Tus vacaciones han comenzado y tus credenciales han sido desactivadas temporalmente. ¡Que disfrutes tu descanso!",
+            "ACTIVO" => "Tus vacaciones han finalizado y tus credenciales han sido reactivadas. ¡Bienvenido de vuelta!",
+            _ => $"Tu estado ha cambiado a {nuevoEstado}. Motivo: {motivo}"
+        };
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "ESTADO_CAMBIADO",
+            Destinatario = email,
+            Mensaje = mensaje,
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = empleadoId
+        };
+
+        await GuardarNotificacion(notificacion);
+        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado procesado y guardado para {Email}", email);
     }
 
     private static Activity? StartConsumerActivity(BasicDeliverEventArgs ea, string? eventType)
@@ -317,6 +368,8 @@ public class RabbitMQConsumerService : BackgroundService
             "SEGURIDAD" => "Notificación de Seguridad / Credenciales",
             "BIENVENIDA" => "¡Bienvenido a la empresa!",
             "DESVINCULACION" => "Aviso de desvinculación",
+            "VACACIONES" => "Confirmación de Vacaciones Programadas",
+            "ESTADO_CAMBIADO" => "Actualización de Estado Laboral",
             _ => "Notificación del Sistema"
         };
         

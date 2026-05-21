@@ -20,6 +20,8 @@ const initDB = async () => {
         estado VARCHAR(50) NOT NULL DEFAULT 'Programada',
         creado_en TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
+      ALTER TABLE vacaciones ADD COLUMN IF NOT EXISTS empleado_id VARCHAR(36);
+      ALTER TABLE vacaciones ADD COLUMN IF NOT EXISTS email VARCHAR(100);
     `);
     console.log('Tabla vacaciones verificada/creada con éxito.');
   } catch (error) {
