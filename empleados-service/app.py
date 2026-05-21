@@ -50,6 +50,10 @@ trace.set_tracer_provider(provider)
 # Métricas Prometheus
 metrics = PrometheusMetrics(app)
 
+from prometheus_client import Counter
+empleados_creados_total = Counter('empleados_creados_total', 'Total de empleados creados en el sistema')
+errores_negocio_total = Counter('errores_negocio_total', 'Total de errores de negocio ocurridos', ['tipo_error'])
+
 # Instrumentar Flask
 FlaskInstrumentor().instrument_app(app)
 RequestsInstrumentor().instrument()
@@ -265,7 +269,31 @@ def validar_departamento(departamento_id, retries=3):
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok"}), 200
+    db_ok = False
+    dependencies = {}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        db_ok = True
+        dependencies["database"] = {"status": "UP"}
+    except Exception as e:
+        dependencies["database"] = {"status": "DOWN", "error": str(e)}
+
+    try:
+        connection = get_rabbitmq_connection()
+        connection.close()
+        dependencies["rabbitmq"] = {"status": "UP"}
+    except Exception as e:
+        dependencies["rabbitmq"] = {"status": "DOWN", "error": str(e)}
+
+    status_val = "UP" if db_ok else "DOWN"
+    return jsonify({
+        "status": status_val,
+        "dependencies": dependencies
+    }), 200 if status_val == "UP" else 500
 
 
 # ======================================================
@@ -338,17 +366,21 @@ def registrar_empleado():
 
     campos = ['cedula', 'nombre', 'email', 'departamentoId', 'fechaIngreso']
     if not all(c in data for c in campos):
+        errores_negocio_total.labels(tipo_error="datos_incompletos").inc()
         return respuesta_error("Datos incompletos")
 
     validacion = validar_departamento(data['departamentoId'])
 
     if validacion == "unauthorized":
+        errores_negocio_total.labels(tipo_error="unauthorized").inc()
         return respuesta_error("Token inválido o faltante para el servicio de departamentos", 401)
 
     if validacion is False:
+        errores_negocio_total.labels(tipo_error="departamento_no_existe").inc()
         return respuesta_error("El departamento no existe", 400)
 
     if validacion is None:
+        errores_negocio_total.labels(tipo_error="servicio_departamentos_offline").inc()
         return respuesta_error("Servicio de departamentos no disponible", 503)
 
     conn = get_db()
@@ -357,12 +389,14 @@ def registrar_empleado():
     try:
         cur.execute("SELECT 1 FROM empleados WHERE cedula=%s", (data['cedula'],))
         if cur.fetchone():
+            errores_negocio_total.labels(tipo_error="cedula_duplicada").inc()
             return respuesta_error("La cédula ya existe", 409)
 
         emp_id = str(uuid.uuid4())
 
         estado = data.get('estado', 'ACTIVO')
         if estado not in ['ACTIVO', 'EN_VACACIONES', 'RETIRADO']:
+            errores_negocio_total.labels(tipo_error="estado_invalido").inc()
             return respuesta_error("Estado inválido. Valores permitidos: ACTIVO, EN_VACACIONES, RETIRADO", 400)
 
         cur.execute("""
@@ -394,6 +428,9 @@ def registrar_empleado():
             event_data['password'] = data['password']
 
         publicar_evento('empleado.creado', event_data)
+
+        # Incrementar metrica de negocio
+        empleados_creados_total.inc()
 
         return respuesta_exitosa("Empleado registrado", {
             "id": emp_id,
@@ -866,15 +903,22 @@ def iniciar_consumidor():
             tipo = datos.get('tipo')
             if tipo == 'empleado.estado.cambiado':
                 emp_id = datos.get('empleado_id')
+                cedula = datos.get('cedula')
+                email = datos.get('email')
                 nuevo_estado = datos.get('nuevoEstado')
                 
                 conn = get_db()
                 cur = conn.cursor()
-                cur.execute("UPDATE empleados SET estado=%s WHERE id=%s", (nuevo_estado, emp_id))
+                if emp_id:
+                    cur.execute("UPDATE empleados SET estado=%s WHERE id=%s", (nuevo_estado, emp_id))
+                elif cedula:
+                    cur.execute("UPDATE empleados SET estado=%s WHERE cedula=%s", (nuevo_estado, cedula))
+                elif email:
+                    cur.execute("UPDATE empleados SET estado=%s WHERE email=%s", (nuevo_estado, email))
                 conn.commit()
                 cur.close()
                 conn.close()
-                print(f"[CONSUMER] Estado de empleado {emp_id} actualizado a {nuevo_estado}")
+                print(f"[CONSUMER] Estado de empleado {emp_id or cedula or email} actualizado a {nuevo_estado}")
             
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:

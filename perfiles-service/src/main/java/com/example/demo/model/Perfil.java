@@ -29,15 +29,23 @@ public class Perfil {
     @Column(nullable = false)
     private String email;
 
+    @Builder.Default
     @Column(columnDefinition = "VARCHAR(20) DEFAULT ''")
     private String telefono = "";
 
+    @Builder.Default
     @Column(columnDefinition = "VARCHAR(255) DEFAULT ''")
     private String direccion = "";
 
+    @Builder.Default
     @Column(columnDefinition = "VARCHAR(100) DEFAULT ''")
     private String ciudad = "";
 
+    @Builder.Default
+    @Column(name = "codigo_postal", columnDefinition = "VARCHAR(20) DEFAULT ''")
+    private String codigoPostal = "";
+
+    @Builder.Default
     @Column(columnDefinition = "TEXT DEFAULT ''")
     private String biografia = "";
 
@@ -54,6 +62,7 @@ public class Perfil {
         this.telefono = "";
         this.direccion = "";
         this.ciudad = "";
+        this.codigoPostal = "";
         this.biografia = "";
         this.fechaCreacion = LocalDateTime.now();
     }

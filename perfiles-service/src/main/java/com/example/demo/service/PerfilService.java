@@ -67,6 +67,7 @@ public class PerfilService {
                     if (request.getTelefono() != null) perfil.setTelefono(request.getTelefono());
                     if (request.getDireccion() != null) perfil.setDireccion(request.getDireccion());
                     if (request.getCiudad() != null) perfil.setCiudad(request.getCiudad());
+                    if (request.getCodigoPostal() != null) perfil.setCodigoPostal(request.getCodigoPostal());
                     if (request.getBiografia() != null) perfil.setBiografia(request.getBiografia());
                     return perfilRepository.save(perfil);
                 });

@@ -1,6 +1,7 @@
 package com.example.demo.controller;
 
 
+import com.example.demo.config.JwtUtils;
 import com.example.demo.dto.PerfilUpdateRequest;
 import com.example.demo.model.Perfil;
 import com.example.demo.service.PerfilService;
@@ -20,9 +21,11 @@ import java.util.Map;
 public class PerfilController {
 
     private final PerfilService perfilService;
+    private final JwtUtils jwtUtils;
 
-    public PerfilController(PerfilService perfilService) {
+    public PerfilController(PerfilService perfilService, JwtUtils jwtUtils) {
         this.perfilService = perfilService;
+        this.jwtUtils = jwtUtils;
     }
 
     @GetMapping
@@ -66,8 +69,25 @@ public class PerfilController {
     @PreAuthorize("hasRole('ADMIN') or hasRole('USER')")
     @Operation(summary = "Actualizar perfil de un empleado")
     public ResponseEntity<Map<String, Object>> actualizarPerfil(
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
             @PathVariable String empleadoId,
             @RequestBody PerfilUpdateRequest request) {
+
+        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+            String token = authHeader.substring(7);
+            if (jwtUtils.isTokenValid(token)) {
+                String reqRole = jwtUtils.extractRole(token);
+                String reqEmpId = jwtUtils.extractEmpleadoId(token);
+
+                if ("USER".equalsIgnoreCase(reqRole) && !empleadoId.equals(reqEmpId)) {
+                    Map<String, Object> response = new HashMap<>();
+                    response.put("success", false);
+                    response.put("message", "Permiso denegado: No es dueno de este perfil.");
+                    response.put("data", null);
+                    return ResponseEntity.status(403).body(response);
+                }
+            }
+        }
 
         return perfilService.actualizarPerfil(empleadoId, request)
                 .map(perfil -> {

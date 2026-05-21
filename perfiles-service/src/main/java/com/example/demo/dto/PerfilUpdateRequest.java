@@ -7,6 +7,7 @@ public class PerfilUpdateRequest {
     private String telefono;
     private String direccion;
     private String ciudad;
+    private String codigoPostal;
     private String biografia;
 
     public PerfilUpdateRequest() {}
@@ -19,6 +20,9 @@ public class PerfilUpdateRequest {
 
     public String getCiudad() { return ciudad; }
     public void setCiudad(String ciudad) { this.ciudad = ciudad; }
+
+    public String getCodigoPostal() { return codigoPostal; }
+    public void setCodigoPostal(String codigoPostal) { this.codigoPostal = codigoPostal; }
 
     public String getBiografia() { return biografia; }
     public void setBiografia(String biografia) { this.biografia = biografia; }

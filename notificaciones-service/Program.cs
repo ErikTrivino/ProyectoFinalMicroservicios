@@ -160,7 +160,30 @@ app.UseAuthorization();
 app.UseMetricServer(); // Endpoint /metrics de Prometheus
 
 app.MapControllers();
-app.MapHealthChecks("/health");
+
+app.MapGet("/health", async (HttpContext context, NotificacionesDbContext db) => {
+    var dependencies = new Dictionary<string, object>();
+    bool dbOk = false;
+    try
+    {
+        var conn = db.Database.GetDbConnection();
+        await conn.OpenAsync();
+        conn.Close();
+        dbOk = true;
+        dependencies["database"] = new { status = "UP" };
+    }
+    catch (Exception ex)
+    {
+        dependencies["database"] = new { status = "DOWN", error = ex.Message };
+    }
+    var statusVal = dbOk ? "UP" : "DOWN";
+    context.Response.StatusCode = dbOk ? 200 : 500;
+    context.Response.ContentType = "application/json";
+    await context.Response.WriteAsJsonAsync(new {
+        status = statusVal,
+        dependencies = dependencies
+    });
+});
 
 Console.WriteLine("[APP] Servicio de Notificaciones iniciado en puerto 8084");
 app.Run();

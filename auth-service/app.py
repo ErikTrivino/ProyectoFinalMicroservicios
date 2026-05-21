@@ -339,18 +339,18 @@ def procesar_evento_empleado_eliminado(event_data):
 def procesar_evento_empleado_estado_cambiado(event_data):
     """Handle empleado.estado.cambiado events by activating/deactivating the auth user based on vacations."""
     empleado_id = event_data.get('empleado_id')
+    email = event_data.get('email')
     nuevo_estado = event_data.get('nuevoEstado')
     
-    if not empleado_id:
-        return
-        
+    active_val = False if nuevo_estado == 'EN_VACACIONES' else True
+    
     conn = get_db()
     cur = conn.cursor()
     
-    if nuevo_estado == 'EN_VACACIONES':
-        cur.execute("UPDATE auth_users SET active=false, updated_at=NOW() WHERE empleado_id=%s", (empleado_id,))
-    elif nuevo_estado == 'ACTIVO':
-        cur.execute("UPDATE auth_users SET active=true, updated_at=NOW() WHERE empleado_id=%s", (empleado_id,))
+    if empleado_id:
+        cur.execute("UPDATE auth_users SET active=%s, updated_at=NOW() WHERE empleado_id=%s", (active_val, empleado_id))
+    elif email:
+        cur.execute("UPDATE auth_users SET active=%s, updated_at=NOW() WHERE email=%s", (active_val, email))
         
     conn.commit()
     cur.close()
@@ -711,7 +711,33 @@ def health():
       200:
         description: Servicio operacional
     """
-    return respuesta_exitosa("auth-service OK")
+    db_ok = False
+    dependencies = {}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        db_ok = True
+        dependencies["database"] = {"status": "UP"}
+    except Exception as e:
+        dependencies["database"] = {"status": "DOWN", "error": str(e)}
+
+    try:
+        parameters = pika.URLParameters(RABBITMQ_URL)
+        parameters.blocked_connection_timeout = 2
+        connection = pika.BlockingConnection(parameters)
+        connection.close()
+        dependencies["rabbitmq"] = {"status": "UP"}
+    except Exception as e:
+        dependencies["rabbitmq"] = {"status": "DOWN", "error": str(e)}
+
+    status_val = "UP" if db_ok else "DOWN"
+    return jsonify({
+        "status": status_val,
+        "dependencies": dependencies
+    }), 200 if status_val == "UP" else 500
 
 
 if __name__ == '__main__':

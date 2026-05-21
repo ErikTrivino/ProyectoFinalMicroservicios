@@ -276,9 +276,10 @@ def change_password():
     return proxy(AUTH_SERVICE_URL, "/auth/change-password")
 
 
-# Operaciones expuestas: GET/POST /empleados.
+# Operaciones expuestas: GET/POST /empleados y /employees.
 # GET lista empleados; POST crea empleado (solo ADMIN).
 @app.route("/empleados", methods=["GET", "POST"])
+@app.route("/employees", methods=["GET", "POST"])
 @requiere_auth("ADMIN", "USER")
 def employees():
     if request.method == "POST" and g.jwt_payload.get("role") != "ADMIN":
@@ -286,9 +287,10 @@ def employees():
     return proxy(EMPLEADOS_SERVICE_URL, "/empleados")
 
 
-# Operaciones expuestas: GET/PUT/DELETE /empleados/{id}.
+# Operaciones expuestas: GET/PUT/DELETE /empleados/{id} y /employees/{id}.
 # GET compone "empleado + perfil"; PUT/DELETE actualizan/eliminan empleado (solo ADMIN).
 @app.route("/empleados/<employee_id>", methods=["GET", "PUT", "DELETE"])
+@app.route("/employees/<employee_id>", methods=["GET", "PUT", "DELETE"])
 @requiere_auth("ADMIN", "USER")
 def employee_by_id(employee_id):
     if request.method in {"PUT", "DELETE"} and g.jwt_payload.get("role") != "ADMIN":
@@ -345,22 +347,56 @@ def profile_by_employee_id(employee_id):
     return proxy(PERFILES_SERVICE_URL, f"/perfiles/{employee_id}")
 
 
-# Operacion expuesta: POST /vacaciones.
-@app.post("/vacaciones")
+# Operaciones expuestas: GET/PUT /profile (del usuario autenticado).
+@app.route("/profile", methods=["GET", "PUT"])
+@requiere_auth("ADMIN", "USER")
+def profile_self():
+    emp_id = g.jwt_payload.get("empleadoId")
+    if not emp_id:
+        return respuesta_error("ID de empleado no encontrado en el token", 400)
+    return proxy(PERFILES_SERVICE_URL, f"/perfiles/{emp_id}")
+
+
+# Operacion expuesta: POST /vacaciones y /vacations.
+@app.route("/vacaciones", methods=["POST"])
+@app.route("/vacations", methods=["POST"])
 @requiere_auth("ADMIN", "USER")
 def create_vacation():
     return proxy(VACACIONES_SERVICE_URL, "/vacaciones")
 
 
-# Operacion expuesta: GET /vacaciones/{cedula}.
-@app.get("/vacaciones/<cedula>")
+# Operacion expuesta: GET /vacaciones/{cedula} y /vacations/{cedula}.
+@app.route("/vacaciones/<cedula>", methods=["GET"])
+@app.route("/vacations/<cedula>", methods=["GET"])
 @requiere_auth("ADMIN", "USER")
 def vacations_by_employee(cedula):
     return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{cedula}")
 
 
-# Operacion expuesta: PUT /vacaciones/{id}/estado.
-@app.put("/vacaciones/<vacation_id>/estado")
+# Operacion expuesta: GET /vacations (para el usuario autenticado).
+@app.route("/vacations", methods=["GET"])
+@requiere_auth("ADMIN", "USER")
+def vacations_self():
+    emp_id = g.jwt_payload.get("empleadoId")
+    if not emp_id:
+        return respuesta_error("ID de empleado no encontrado en el token", 400)
+    
+    # Obtener el empleado para saber su cedula
+    response, body = pedir_json(EMPLEADOS_SERVICE_URL, f"/empleados/{emp_id}")
+    if response.status_code != 200:
+        return responder_backend(response)
+    
+    emp_data = data_de_respuesta(body)
+    cedula = emp_data.get("cedula")
+    if not cedula:
+        return respuesta_error("Cedula de empleado no encontrada", 404)
+        
+    return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{cedula}")
+
+
+# Operacion expuesta: PUT /vacaciones/{id}/estado y /vacations/{id}/status.
+@app.route("/vacaciones/<vacation_id>/estado", methods=["PUT"])
+@app.route("/vacations/<vacation_id>/status", methods=["PUT"])
 @requiere_auth("ADMIN", "USER")
 def update_vacation_status(vacation_id):
     return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{vacation_id}/estado")
@@ -378,6 +414,38 @@ def notifications():
 @requiere_auth("ADMIN", "USER")
 def notifications_by_employee(employee_id):
     return proxy(NOTIFICACIONES_SERVICE_URL, f"/notificaciones/{employee_id}")
+
+
+# Operacion expuesta: GET /health.
+@app.get("/health")
+def health():
+    dependencies = {}
+    services = {
+        "auth-service": AUTH_SERVICE_URL,
+        "empleados-service": EMPLEADOS_SERVICE_URL,
+        "departamentos-service": DEPARTAMENTOS_SERVICE_URL,
+        "perfiles-service": PERFILES_SERVICE_URL,
+        "vacaciones-service": VACACIONES_SERVICE_URL,
+        "notificaciones-service": NOTIFICACIONES_SERVICE_URL
+    }
+    
+    overall_ok = True
+    for name, url_base in services.items():
+        url = f"{url_base.rstrip('/')}/health"
+        try:
+            resp = requests.get(url, timeout=2)
+            if resp.status_code == 200:
+                dependencies[name] = {"status": "UP"}
+            else:
+                dependencies[name] = {"status": "DEGRADED", "code": resp.status_code}
+        except Exception as e:
+            overall_ok = False
+            dependencies[name] = {"status": "DOWN", "error": str(e)}
+            
+    return jsonify({
+        "status": "UP" if overall_ok else "DEGRADED",
+        "dependencies": dependencies
+    }), 200 if overall_ok else 500
 
 
 if __name__ == "__main__":

@@ -371,7 +371,24 @@ def init_db():
 # =========================
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok"}), 200
+    db_ok = False
+    dependencies = {}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("SELECT 1")
+        cur.close()
+        conn.close()
+        db_ok = True
+        dependencies["database"] = {"status": "UP"}
+    except Exception as e:
+        dependencies["database"] = {"status": "DOWN", "error": str(e)}
+
+    status_val = "UP" if db_ok else "DOWN"
+    return jsonify({
+        "status": status_val,
+        "dependencies": dependencies
+    }), 200 if status_val == "UP" else 500
 
 if __name__ == '__main__':
     init_db()

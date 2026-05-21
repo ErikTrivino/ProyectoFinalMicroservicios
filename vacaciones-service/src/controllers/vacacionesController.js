@@ -22,6 +22,9 @@ const programarVacaciones = async (req, res) => {
       headers: { Authorization: authHeader }
     });
     empleadoData = response.data.data;
+    if (empleadoData.estado !== 'ACTIVO') {
+      return res.status(400).json({ message: `No se pueden programar vacaciones para un empleado cuyo estado es: ${empleadoData.estado}` });
+    }
   } catch (error) {
     if (error.response && error.response.status === 404) {
       return res.status(404).json({ message: 'El empleado con esta cédula no existe' });

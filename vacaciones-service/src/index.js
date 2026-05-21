@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { initDB } = require('./config/db');
+const { initDB, pool } = require('./config/db');
 const rabbitMQ = require('./config/rabbitmq');
 const expressPromBundle = require('express-prom-bundle');
 const logger = require('./config/logger');
@@ -135,8 +135,33 @@ app.put('/vacaciones/:id/estado', authMiddleware, actualizarEstado);
  *       200:
  *         description: Microservicio funcionando correctamente
  */
-app.get('/health', (req, res) => {
-  res.json({ status: 'UP', service: 'vacaciones-service' });
+app.get('/health', async (req, res) => {
+  const dependencies = {};
+  let dbOk = false;
+
+  try {
+    await pool.query('SELECT 1');
+    dbOk = true;
+    dependencies.database = { status: 'UP' };
+  } catch (error) {
+    dependencies.database = { status: 'DOWN', error: error.message };
+  }
+
+  try {
+    if (rabbitMQ.channel) {
+      dependencies.rabbitmq = { status: 'UP' };
+    } else {
+      dependencies.rabbitmq = { status: 'DOWN', error: 'No channel available' };
+    }
+  } catch (error) {
+    dependencies.rabbitmq = { status: 'DOWN', error: error.message };
+  }
+
+  const overallStatus = dbOk ? 'UP' : 'DOWN';
+  res.status(dbOk ? 200 : 500).json({
+    status: overallStatus,
+    dependencies
+  });
 });
 
 const PORT = process.env.PORT || 80;
