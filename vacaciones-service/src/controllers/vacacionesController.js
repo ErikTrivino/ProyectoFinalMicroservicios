@@ -1,11 +1,32 @@
 const { pool } = require('../config/db');
 const rabbitMQ = require('../config/rabbitmq');
+const axios = require('axios');
+
+const EMPLEADOS_SERVICE_URL = process.env.EMPLEADOS_SERVICE_URL || 'http://empleados-service:80';
 
 const programarVacaciones = async (req, res) => {
   const { cedula, fecha_inicio, fecha_fin } = req.body;
 
   if (!cedula || !fecha_inicio || !fecha_fin) {
     return res.status(400).json({ message: 'Faltan campos requeridos (cedula, fecha_inicio, fecha_fin)' });
+  }
+
+  const authHeader = req.headers.authorization;
+  if (!authHeader) {
+    return res.status(401).json({ message: 'Token de autorización requerido' });
+  }
+
+  let empleadoData;
+  try {
+    const response = await axios.get(`${EMPLEADOS_SERVICE_URL}/empleados/cedula/${cedula}`, {
+      headers: { Authorization: authHeader }
+    });
+    empleadoData = response.data.data;
+  } catch (error) {
+    if (error.response && error.response.status === 404) {
+      return res.status(404).json({ message: 'El empleado con esta cédula no existe' });
+    }
+    return res.status(500).json({ message: 'Error validando empleado', details: error.message });
   }
 
   try {
@@ -54,17 +75,19 @@ const programarVacaciones = async (req, res) => {
 
     // Insertar en BD
     const insertQuery = `
-      INSERT INTO vacaciones (cedula, fecha_inicio, fecha_fin, dias_solicitados, estado)
-      VALUES ($1, $2, $3, $4, 'Programada')
+      INSERT INTO vacaciones (cedula, empleado_id, email, fecha_inicio, fecha_fin, dias_solicitados, estado)
+      VALUES ($1, $2, $3, $4, $5, $6, 'Programada')
       RETURNING *;
     `;
-    const insertResult = await pool.query(insertQuery, [cedula, fecha_inicio, fecha_fin, dias_solicitados]);
+    const insertResult = await pool.query(insertQuery, [cedula, empleadoData.id, empleadoData.email, fecha_inicio, fecha_fin, dias_solicitados]);
     const nuevaVacacion = insertResult.rows[0];
 
     // Publicar evento (notificaciones-service escuchará esto)
     rabbitMQ.publishEvent('vacaciones.programadas', {
       tipo: 'vacaciones.programadas',
       cedula,
+      empleado_id: empleadoData.id,
+      email: empleadoData.email,
       fecha_inicio,
       fecha_fin,
       dias_solicitados,

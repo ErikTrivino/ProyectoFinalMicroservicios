@@ -336,6 +336,27 @@ def procesar_evento_empleado_eliminado(event_data):
     deshabilitar_usuario_por_email(email)
 
 
+def procesar_evento_empleado_estado_cambiado(event_data):
+    """Handle empleado.estado.cambiado events by activating/deactivating the auth user based on vacations."""
+    empleado_id = event_data.get('empleado_id')
+    nuevo_estado = event_data.get('nuevoEstado')
+    
+    if not empleado_id:
+        return
+        
+    conn = get_db()
+    cur = conn.cursor()
+    
+    if nuevo_estado == 'EN_VACACIONES':
+        cur.execute("UPDATE auth_users SET active=false, updated_at=NOW() WHERE empleado_id=%s", (empleado_id,))
+    elif nuevo_estado == 'ACTIVO':
+        cur.execute("UPDATE auth_users SET active=true, updated_at=NOW() WHERE empleado_id=%s", (empleado_id,))
+        
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 def start_rabbitmq():
     """Connect to RabbitMQ and consume employee lifecycle events indefinitely."""
     while True:
@@ -359,6 +380,8 @@ def start_rabbitmq():
                             procesar_evento_empleado_creado(event_data)
                         elif event_type == 'empleado.eliminado':
                             procesar_evento_empleado_eliminado(event_data)
+                        elif event_type == 'empleado.estado.cambiado':
+                            procesar_evento_empleado_estado_cambiado(event_data)
                 except Exception as err:
                     print(f'Error procesando evento RabbitMQ: {err}')
                 finally:

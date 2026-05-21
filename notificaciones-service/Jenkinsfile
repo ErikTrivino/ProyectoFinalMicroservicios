@@ -1,5 +1,5 @@
 // ============================================================
-// Jenkinsfile - perfiles-service (Java/Spring Boot/Gradle)
+// Jenkinsfile - notificaciones-service (C#/.NET 10)
 // Reto 6 - Integración Continua
 // ============================================================
 // Pipeline declarativo con etapas:
@@ -18,9 +18,9 @@ pipeline {
     }
 
     environment {
-        SERVICE_NAME = 'perfiles-service'
-        IMAGE_NAME   = "proyecto-perfiles"
-        REGISTRY     = "localhost:5000"
+        SERVICE_NAME = 'notificaciones-service'
+        IMAGE_NAME   = 'proyecto-notificaciones'
+        REGISTRY     = 'localhost:5000'
         SONAR_TOKEN  = credentials('sonar-token')
     }
 
@@ -32,11 +32,7 @@ pipeline {
         stage('Checkout') {
             steps {
                 echo "📥 Obteniendo código fuente de ${SERVICE_NAME}..."
-                // Copiar desde la carpeta clonada en el workspace en lugar del volumen compartido para evitar archivos locales pesados
-                sh "cp -r ${SERVICE_NAME}/* ."
-                sh "cp -r pruebas-funcionales ./pruebas-funcionales || true"
-                sh "cp docker-compose.yml . || true"
-                sh "cp -r jenkins ./jenkins || true"
+                // Los archivos ya están en el workspace gracias al checkout SCM de Jenkins, no necesitamos copiar nada del volumen
                 sh 'ls -la'
             }
         }
@@ -47,50 +43,36 @@ pipeline {
         stage('Build') {
             agent {
                 docker {
-                    image 'gradle:8.14-jdk17'
-                    args '-v gradle-cache:/home/gradle/.gradle'
+                    image 'mcr.microsoft.com/dotnet/sdk:10.0'
                     reuseNode true
                 }
             }
             steps {
-                echo "🔨 Compilando ${SERVICE_NAME} con Gradle..."
-                sh 'gradle clean build -x test --no-daemon'
+                echo "🔨 Compilando ${SERVICE_NAME} con .NET..."
+                sh 'dotnet restore'
+                sh 'dotnet build -c Release --no-restore'
                 echo "✅ Build exitoso"
             }
         }
 
         // ========================================
-        // ETAPA 3: Test + Cobertura (JaCoCo)
+        // ETAPA 3: Test + Cobertura (Coverlet)
         // ========================================
         stage('Test') {
             agent {
                 docker {
-                    image 'gradle:8.14-jdk17'
-                    args '-v gradle-cache:/home/gradle/.gradle'
+                    image 'mcr.microsoft.com/dotnet/sdk:10.0'
                     reuseNode true
                 }
             }
             steps {
                 echo "🧪 Ejecutando tests unitarios de ${SERVICE_NAME}..."
-                sh 'gradle test jacocoTestReport --no-daemon'
-            }
-            post {
-                always {
-                    junit 'build/test-results/test/*.xml'
-                    jacoco(
-                        execPattern: 'build/jacoco/test.exec',
-                        classPattern: 'build/classes',
-                        sourcePattern: 'src/main/java'
-                    )
-                    publishHTML(target: [
-                        allowMissing: false,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'build/reports/jacoco/test/html',
-                        reportFiles: 'index.html',
-                        reportName: 'Cobertura Perfiles (JaCoCo)'
-                    ])
-                }
+                sh 'dotnet test --no-build --configuration Release --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=opencover'
+                
+                // Copiar reporte de cobertura a un lugar predecible para SonarQube
+                sh 'mkdir -p notificaciones-service/TestResults'
+                sh 'cp -r NotificacionesService.Tests/TestResults/*/coverage.opencover.xml notificaciones-service/TestResults/coverage.opencover.xml || true'
+                sh 'ls -l notificaciones-service/TestResults/ || true'
             }
         }
 
@@ -100,8 +82,8 @@ pipeline {
         stage('SonarQube Analysis') {
             agent {
                 docker {
-                    image 'gradle:8.14-jdk17'
-                    args '-v gradle-cache:/home/gradle/.gradle --network proyectofinalmicroservicios_checkin-net'
+                    image 'sonarsource/sonar-scanner-cli:latest'
+                    args '--network proyectofinalmicroservicios_checkin-net'
                     reuseNode true
                 }
             }
@@ -109,7 +91,8 @@ pipeline {
                 withSonarQubeEnv('SonarQube') {
                     echo "🔍 Ejecutando análisis SonarQube para ${SERVICE_NAME}..."
                     sh """
-                        gradle sonar --no-daemon \
+                        cd notificaciones-service && \
+                        sonar-scanner \
                             -Dsonar.host.url=http://sonarqube:9000 \
                             -Dsonar.token=${SONAR_TOKEN}
                     """
@@ -138,7 +121,7 @@ pipeline {
                     def imageTag = "${env.BUILD_NUMBER}"
 
                     echo "🐋 Construyendo imagen Docker: ${IMAGE_NAME}:${imageTag}..."
-                    sh "docker build -t ${IMAGE_NAME}:${imageTag} -t ${IMAGE_NAME}:latest ."
+                    sh "docker build -t ${IMAGE_NAME}:${imageTag} -t ${IMAGE_NAME}:latest -f ${SERVICE_NAME}/Dockerfile ${SERVICE_NAME}/"
 
                     // Verificar que la imagen se construyó
                     sh "docker images ${IMAGE_NAME}:${imageTag}"

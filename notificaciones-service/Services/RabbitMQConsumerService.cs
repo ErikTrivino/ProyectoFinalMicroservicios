@@ -179,14 +179,65 @@ public class RabbitMQConsumerService : BackgroundService
 
     private async Task ProcesarVacacionesProgramadas(string json)
     {
-        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas recibidas: {Json}", json);
-        await Task.CompletedTask;
+        var evento = JsonSerializer.Deserialize<JsonElement>(json);
+        var email = evento.TryGetProperty("email", out var emailProp) ? emailProp.GetString() : null;
+        var empleadoId = evento.TryGetProperty("empleado_id", out var idProp) ? idProp.GetString() : "SISTEMA";
+        var fechaInicio = evento.TryGetProperty("fecha_inicio", out var fiProp) ? fiProp.GetString() : "";
+        var fechaFin = evento.TryGetProperty("fecha_fin", out var ffProp) ? ffProp.GetString() : "";
+
+        if (string.IsNullOrEmpty(email))
+        {
+            _logger.LogWarning("[NOTIFICACION] Evento vacaciones.programadas ignorado por falta de email.");
+            return;
+        }
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "VACACIONES",
+            Destinatario = email,
+            Mensaje = $"Tus vacaciones han sido programadas exitosamente. Período: {fechaInicio} al {fechaFin}.",
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = empleadoId
+        };
+
+        await GuardarNotificacion(notificacion);
+        _logger.LogInformation("[NOTIFICACION] Vacaciones programadas procesadas y guardadas para {Email}", email);
     }
 
     private async Task ProcesarEmpleadoEstadoCambiado(string json)
     {
-        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado recibido: {Json}", json);
-        await Task.CompletedTask;
+        var evento = JsonSerializer.Deserialize<JsonElement>(json);
+        var email = evento.TryGetProperty("email", out var emailProp) ? emailProp.GetString() : null;
+        var empleadoId = evento.TryGetProperty("empleado_id", out var idProp) ? idProp.GetString() : "SISTEMA";
+        var nuevoEstado = evento.TryGetProperty("nuevoEstado", out var neProp) ? neProp.GetString() : "";
+        var motivo = evento.TryGetProperty("motivo", out var mProp) ? mProp.GetString() : "";
+
+        if (string.IsNullOrEmpty(email))
+        {
+            _logger.LogWarning("[NOTIFICACION] Evento empleado.estado.cambiado ignorado por falta de email.");
+            return;
+        }
+
+        string mensaje = nuevoEstado switch
+        {
+            "EN_VACACIONES" => "Tus vacaciones han comenzado y tus credenciales han sido desactivadas temporalmente. ¡Que disfrutes tu descanso!",
+            "ACTIVO" => "Tus vacaciones han finalizado y tus credenciales han sido reactivadas. ¡Bienvenido de vuelta!",
+            _ => $"Tu estado ha cambiado a {nuevoEstado}. Motivo: {motivo}"
+        };
+
+        var notificacion = new Notificacion
+        {
+            Id = Guid.NewGuid().ToString(),
+            Tipo = "ESTADO_CAMBIADO",
+            Destinatario = email,
+            Mensaje = mensaje,
+            FechaEnvio = DateTime.UtcNow,
+            EmpleadoId = empleadoId
+        };
+
+        await GuardarNotificacion(notificacion);
+        _logger.LogInformation("[NOTIFICACION] Cambio de estado de empleado procesado y guardado para {Email}", email);
     }
 
     private static Activity? StartConsumerActivity(BasicDeliverEventArgs ea, string? eventType)
@@ -277,10 +328,10 @@ public class RabbitMQConsumerService : BackgroundService
         string mensaje = evento.Tipo switch
         {
             "usuario.creado" => evento.NeedsPasswordReset == true 
-                ? $"Su usuario ha sido creado. Para activar su cuenta, utilice el token: {evento.Token}" 
-                : "Su usuario ha sido creado exitosamente.",
-            "usuario.recuperacion" => $"Solicitud de recuperación de contraseña. Use este token: {evento.Token}",
-            _ => "Notificación de seguridad recibida."
+                ? $"<h2>Bienvenido a la plataforma</h2><p>Su usuario ha sido creado exitosamente con el correo electrónico: <b>{evento.Email}</b>.</p><p><b>Pasos de activación:</b></p><ol><li>Acceda al sistema de autenticación.</li><li>Utilice el siguiente token temporal para establecer su contraseña inicial:</li></ol><blockquote><b>{evento.Token}</b></blockquote>" 
+                : $"<h2>Bienvenido a la plataforma</h2><p>Su usuario ha sido creado exitosamente con el correo electrónico: <b>{evento.Email}</b> y la contraseña inicial proporcionada.</p>",
+            "usuario.recuperacion" => $"<h2>Recuperación de Contraseña</h2><p>Hemos recibido una solicitud de recuperación de contraseña para su cuenta (<b>{evento.Email}</b>).</p><p>Utilice este token para restablecer su contraseña:</p><blockquote><b>{evento.Token}</b></blockquote>",
+            _ => "<p>Notificación de seguridad recibida.</p>"
         };
 
         var notificacion = new Notificacion
@@ -300,6 +351,8 @@ public class RabbitMQConsumerService : BackgroundService
     {
         using var scope = _serviceProvider.CreateScope();
         var dbContext = scope.ServiceProvider.GetRequiredService<NotificacionesDbContext>();
+        var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+
         dbContext.Notificaciones.Add(notificacion);
         await dbContext.SaveChangesAsync();
 
@@ -308,6 +361,19 @@ public class RabbitMQConsumerService : BackgroundService
             notificacion.Tipo,
             notificacion.Destinatario,
             notificacion.Mensaje);
+
+        // Enviar correo electrónico
+        string subject = notificacion.Tipo switch
+        {
+            "SEGURIDAD" => "Notificación de Seguridad / Credenciales",
+            "BIENVENIDA" => "¡Bienvenido a la empresa!",
+            "DESVINCULACION" => "Aviso de desvinculación",
+            "VACACIONES" => "Confirmación de Vacaciones Programadas",
+            "ESTADO_CAMBIADO" => "Actualización de Estado Laboral",
+            _ => "Notificación del Sistema"
+        };
+        
+        await emailService.SendEmailAsync(notificacion.Destinatario, subject, notificacion.Mensaje);
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)

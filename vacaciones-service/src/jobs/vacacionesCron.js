@@ -11,7 +11,7 @@ const iniciarCronJob = () => {
 
       // 1. Desactivar cuentas para vacaciones que inician HOY
       const inicianHoyQuery = `
-        SELECT id, cedula FROM vacaciones 
+        SELECT id, cedula, empleado_id, email FROM vacaciones 
         WHERE fecha_inicio <= $1 AND estado = 'Programada'
       `;
       const inicianHoyResult = await pool.query(inicianHoyQuery, [hoy]);
@@ -24,6 +24,8 @@ const iniciarCronJob = () => {
         rabbitMQ.publishEvent('empleado.estado.cambiado', {
           tipo: 'empleado.estado.cambiado',
           cedula: vacacion.cedula,
+          empleado_id: vacacion.empleado_id,
+          email: vacacion.email,
           nuevoEstado: 'EN_VACACIONES',
           motivo: 'Inicio de vacaciones'
         });
@@ -32,7 +34,7 @@ const iniciarCronJob = () => {
 
       // 2. Reactivar cuentas para vacaciones que finalizan ANTES DE HOY o igual a ayer
       const terminaronQuery = `
-        SELECT id, cedula FROM vacaciones 
+        SELECT id, cedula, empleado_id, email FROM vacaciones 
         WHERE fecha_fin < $1 AND estado = 'En Curso'
       `;
       const terminaronResult = await pool.query(terminaronQuery, [hoy]);
@@ -45,6 +47,8 @@ const iniciarCronJob = () => {
         rabbitMQ.publishEvent('empleado.estado.cambiado', {
           tipo: 'empleado.estado.cambiado',
           cedula: vacacion.cedula,
+          empleado_id: vacacion.empleado_id,
+          email: vacacion.email,
           nuevoEstado: 'ACTIVO',
           motivo: 'Fin de vacaciones'
         });
