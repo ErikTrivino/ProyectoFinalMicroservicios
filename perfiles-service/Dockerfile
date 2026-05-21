@@ -4,6 +4,10 @@
 FROM gradle:8.14-jdk17 AS build
 WORKDIR /app
 
+# Configurar límites de memoria para Gradle para evitar que la compilación consuma demasiados recursos
+# y cause que Docker BuildKit falle/crashee (error: rpc error: code = Unavailable desc = error reading from server: EOF)
+ENV GRADLE_OPTS="-Dorg.gradle.jvmargs=-Xmx512m -XX:MaxMetaspaceSize=256m -Dorg.gradle.workers.max=1"
+
 # Copiar archivos de configuración de Gradle primero (cachea dependencias)
 COPY build.gradle settings.gradle ./
 COPY gradle ./gradle
