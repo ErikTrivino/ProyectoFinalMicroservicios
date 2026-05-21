@@ -88,17 +88,17 @@ app.get('/vacaciones/:cedula', authMiddleware, obtenerVacacionesPorEmpleado);
 
 /**
  * @swagger
- * /vacaciones/{id}/estado:
+ * /vacaciones/{cedula}/estado:
  *   put:
- *     summary: Actualiza el estado de una solicitud de vacaciones
+ *     summary: Actualiza el estado de la solicitud de vacaciones activa de un empleado
  *     tags: [Vacaciones]
  *     parameters:
  *       - in: path
- *         name: id
+ *         name: cedula
  *         schema:
- *           type: integer
+ *           type: string
  *         required: true
- *         description: ID de la solicitud de vacaciones
+ *         description: Cédula del empleado
  *     requestBody:
  *       required: true
  *       content:
@@ -117,11 +117,11 @@ app.get('/vacaciones/:cedula', authMiddleware, obtenerVacacionesPorEmpleado);
  *       400:
  *         description: Faltan campos
  *       404:
- *         description: Vacaciones no encontradas
+ *         description: No se encontraron vacaciones activas para esta cédula
  *       500:
  *         description: Error interno del servidor
  */
-app.put('/vacaciones/:id/estado', authMiddleware, actualizarEstado);
+app.put('/vacaciones/:cedula/estado', authMiddleware, actualizarEstado);
 
 // Healthcheck
 /**

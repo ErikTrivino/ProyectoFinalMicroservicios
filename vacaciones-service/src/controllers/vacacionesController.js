@@ -124,7 +124,7 @@ const obtenerVacacionesPorEmpleado = async (req, res) => {
 };
 
 const actualizarEstado = async (req, res) => {
-  const { id } = req.params;
+  const { cedula } = req.params;
   const { estado } = req.body; // ej. "Cancelada"
 
   if (!estado) {
@@ -132,9 +132,20 @@ const actualizarEstado = async (req, res) => {
   }
 
   try {
-    const result = await pool.query('UPDATE vacaciones SET estado = $1 WHERE id = $2 RETURNING *', [estado, id]);
+    // Actualiza la solicitud de vacaciones más reciente que esté activa (Programada o En Curso) para esa cédula
+    const result = await pool.query(
+      `UPDATE vacaciones SET estado = $1
+       WHERE id = (
+         SELECT id FROM vacaciones
+         WHERE cedula = $2 AND estado IN ('Programada', 'En Curso')
+         ORDER BY fecha_inicio DESC
+         LIMIT 1
+       )
+       RETURNING *`,
+      [estado, cedula]
+    );
     if (result.rows.length === 0) {
-      return res.status(404).json({ message: 'Vacaciones no encontradas' });
+      return res.status(404).json({ message: 'No se encontraron vacaciones activas (Programada o En Curso) para esta cédula' });
     }
     res.json({ message: 'Estado actualizado', data: result.rows[0] });
   } catch (error) {

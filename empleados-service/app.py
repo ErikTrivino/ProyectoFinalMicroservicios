@@ -447,63 +447,12 @@ def registrar_empleado():
 
 
 # ======================================================
-# GET /empleados/{id}
+# GET /empleados/{cedula}
 # ======================================================
 
-@app.route('/empleados/<id>', methods=['GET'])
+@app.route('/empleados/<cedula>', methods=['GET'])
 @requerir_rol('USER', 'ADMIN')
-def obtener_empleado(id):
-    """
-    Obtener empleado por ID
-    ---
-    tags:
-      - Empleados
-    parameters:
-      - name: id
-        in: path
-        type: string
-        required: true
-        description: ID del empleado
-    responses:
-      200:
-        description: Empleado encontrado
-      404:
-        description: Empleado no existe
-    """
-
-    conn = get_db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
-        FROM empleados WHERE id=%s
-    """, (id,))
-
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-
-    if not row:
-        return respuesta_error("Empleado no existe", 404)
-
-    return respuesta_exitosa("Empleado encontrado", {
-        "id": row[0],
-        "cedula": row[1],
-        "nombre": row[2],
-        "email": row[3],
-        "departamentoId": row[4],
-        "fechaIngreso": row[5].isoformat(),
-        "estado": row[6]
-    })
-
-
-# ======================================================
-# GET /empleados/cedula/{cedula}
-# ======================================================
-
-@app.route('/empleados/cedula/<cedula>', methods=['GET'])
-@requerir_rol('USER', 'ADMIN')
-def obtener_empleado_por_cedula(cedula):
+def obtener_empleado(cedula):
     """
     Obtener empleado por Cédula
     ---
@@ -548,19 +497,27 @@ def obtener_empleado_por_cedula(cedula):
     })
 
 
+# GET /empleados/cedula/{cedula} se mantiene como alias de compatibilidad
+# para llamadas internas (vacaciones-service lo usa).
+@app.route('/empleados/cedula/<cedula>', methods=['GET'])
+@requerir_rol('USER', 'ADMIN')
+def obtener_empleado_por_cedula(cedula):
+    """Alias interno — redirige a la misma lógica que GET /empleados/{cedula}."""
+    return obtener_empleado(cedula)
+
+
 # ======================================================
-# PUT /empleados/{id}
+# PUT /empleados/{cedula}
 # ======================================================
 
-@app.route('/empleados/<id>', methods=['PUT'])
+@app.route('/empleados/<cedula>', methods=['PUT'])
 @requerir_rol('ADMIN')
-def actualizar_empleado(id):
+def actualizar_empleado(cedula):
     data = request.get_json()
     if not data:
         return respuesta_error("El cuerpo es obligatorio")
 
     campos_permitidos = {
-        'cedula': 'cedula',
         'nombre': 'nombre',
         'email': 'email',
         'departamentoId': 'departamento_id',
@@ -587,7 +544,7 @@ def actualizar_empleado(id):
     cur = conn.cursor()
 
     try:
-        cur.execute("SELECT 1 FROM empleados WHERE id=%s", (id,))
+        cur.execute("SELECT 1 FROM empleados WHERE cedula=%s", (cedula,))
         if not cur.fetchone():
             return respuesta_error("Empleado no existe", 404)
 
@@ -596,15 +553,15 @@ def actualizar_empleado(id):
         for campo_api, valor in cambios.items():
             assignments.append(f"{campos_permitidos[campo_api]}=%s")
             values.append(valor)
-        values.append(id)
+        values.append(cedula)
 
-        cur.execute(f"UPDATE empleados SET {', '.join(assignments)} WHERE id=%s", values)
+        cur.execute(f"UPDATE empleados SET {', '.join(assignments)} WHERE cedula=%s", values)
         conn.commit()
 
         cur.execute("""
             SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
-            FROM empleados WHERE id=%s
-        """, (id,))
+            FROM empleados WHERE cedula=%s
+        """, (cedula,))
         row = cur.fetchone()
 
         return respuesta_exitosa("Empleado actualizado", {
@@ -624,23 +581,23 @@ def actualizar_empleado(id):
         conn.close()
 
 # ======================================================
-# DELETE /empleados/{id}
+# DELETE /empleados/{cedula}
 # ======================================================
 
-@app.route('/empleados/<id>', methods=['DELETE'])
+@app.route('/empleados/<cedula>', methods=['DELETE'])
 @requerir_rol('ADMIN')
-def eliminar_empleado(id):
+def eliminar_empleado(cedula):
     """
-    Eliminar empleado por ID
+    Eliminar empleado por Cédula
     ---
     tags:
       - Empleados
     parameters:
-      - name: id
+      - name: cedula
         in: path
         type: string
         required: true
-        description: ID del empleado
+        description: Cédula del empleado
     responses:
       200:
         description: Empleado eliminado correctamente
@@ -656,9 +613,9 @@ def eliminar_empleado(id):
     try:
         # Verificar que el empleado existe y obtener sus datos
         cur.execute("""
-            SELECT cedula, nombre, email, departamento_id, fecha_ingreso, estado
-            FROM empleados WHERE id=%s
-        """, (id,))
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE cedula=%s
+        """, (cedula,))
         
         row = cur.fetchone()
         if not row:
@@ -666,17 +623,17 @@ def eliminar_empleado(id):
         
         # Guardar datos para el evento
         empleado_data = {
-            'id': id,
-            'cedula': row[0],
-            'nombre': row[1],
-            'email': row[2],
-            'departamentoId': row[3],
-            'fechaIngreso': row[4].isoformat(),
-            'estado': row[5]
+            'id': row[0],
+            'cedula': row[1],
+            'nombre': row[2],
+            'email': row[3],
+            'departamentoId': row[4],
+            'fechaIngreso': row[5].isoformat(),
+            'estado': row[6]
         }
         
         # Eliminar el empleado
-        cur.execute("DELETE FROM empleados WHERE id=%s", (id,))
+        cur.execute("DELETE FROM empleados WHERE cedula=%s", (cedula,))
         conn.commit()
         
         # Publicar evento de empleado eliminado
@@ -693,23 +650,23 @@ def eliminar_empleado(id):
         conn.close()
 
 # ======================================================
-# POST /empleados/{id}/offboard
+# POST /empleados/{cedula}/offboard
 # ======================================================
 
-@app.route('/empleados/<id>/offboard', methods=['POST'])
+@app.route('/empleados/<cedula>/offboard', methods=['POST'])
 @requerir_rol('ADMIN')
-def offboarding_empleado(id):
+def offboarding_empleado(cedula):
     """
     Offboarding de un empleado
     ---
     tags:
       - Empleados
     parameters:
-      - name: id
+      - name: cedula
         in: path
         type: string
         required: true
-        description: ID del empleado
+        description: Cédula del empleado
     responses:
       200:
         description: Empleado retirado correctamente
@@ -727,37 +684,38 @@ def offboarding_empleado(id):
     try:
         # Verificar que el empleado existe y obtener sus datos
         cur.execute("""
-            SELECT cedula, nombre, email, departamento_id, fecha_ingreso, estado
-            FROM empleados WHERE id=%s
-        """, (id,))
+            SELECT id, cedula, nombre, email, departamento_id, fecha_ingreso, estado
+            FROM empleados WHERE cedula=%s
+        """, (cedula,))
         
         row = cur.fetchone()
         if not row:
             return respuesta_error("Empleado no existe", 404)
-            
-        estado_actual = row[5]
+        
+        emp_id = row[0]
+        estado_actual = row[6]
         if estado_actual == 'RETIRADO':
             return respuesta_error("El empleado ya se encuentra retirado", 400)
         
         # Guardar datos para el evento
         empleado_data = {
-            'id': id,
-            'cedula': row[0],
-            'nombre': row[1],
-            'email': row[2],
-            'departamentoId': row[3],
-            'fechaIngreso': row[4].isoformat(),
+            'id': emp_id,
+            'cedula': row[1],
+            'nombre': row[2],
+            'email': row[3],
+            'departamentoId': row[4],
+            'fechaIngreso': row[5].isoformat(),
             'estado': 'RETIRADO'
         }
         
         # Actualizar estado a RETIRADO
-        cur.execute("UPDATE empleados SET estado='RETIRADO' WHERE id=%s", (id,))
+        cur.execute("UPDATE empleados SET estado='RETIRADO' WHERE cedula=%s", (cedula,))
         
         # Registro de auditoría de la fecha y hora de la desactivación
         cur.execute("""
             INSERT INTO auditoria_offboarding (empleado_id, detalles)
             VALUES (%s, %s)
-        """, (id, "Offboarding completado: credenciales y accesos desactivados permanentemente"))
+        """, (emp_id, "Offboarding completado: credenciales y accesos desactivados permanentemente"))
         
         conn.commit()
         

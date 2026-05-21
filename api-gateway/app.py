@@ -120,10 +120,10 @@ swagger = Swagger(app, template={
             "get": {"tags": ["Empleados"], "summary": "Lista empleados con paginacion", "security": [{"Bearer": []}], "parameters": [{"in": "query", "name": "page", "type": "integer", "required": False, "default": 1}, {"in": "query", "name": "size", "type": "integer", "required": False, "default": 10}], "responses": {"200": {"description": "Lista paginada de empleados"}}},
             "post": {"tags": ["Empleados"], "summary": "Crea un empleado", "description": "Operacion permitida solo para rol ADMIN.", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/EmployeeRequest"}}], "responses": {"201": {"description": "Empleado creado"}, "403": {"description": "Permiso denegado"}}},
         },
-        "/empleados/{id}": {
-            "get": {"tags": ["Empleados"], "summary": "Obtiene un empleado con su perfil", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado completo"}, "404": {"description": "Empleado no encontrado"}}},
-            "put": {"tags": ["Empleados"], "summary": "Actualiza un empleado", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/EmployeeRequest"}}], "responses": {"200": {"description": "Empleado actualizado"}}},
-            "delete": {"tags": ["Empleados"], "summary": "Elimina un empleado", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado eliminado"}}},
+        "/empleados/{cedula}": {
+            "get": {"tags": ["Empleados"], "summary": "Obtiene un empleado con su perfil por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado completo"}, "404": {"description": "Empleado no encontrado"}}},
+            "put": {"tags": ["Empleados"], "summary": "Actualiza un empleado por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/EmployeeRequest"}}], "responses": {"200": {"description": "Empleado actualizado"}}},
+            "delete": {"tags": ["Empleados"], "summary": "Elimina un empleado por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado eliminado"}}},
         },
         "/departamentos": {
             "get": {"tags": ["Departamentos"], "summary": "Lista departamentos con paginacion", "security": [{"Bearer": []}], "parameters": [{"in": "query", "name": "page", "type": "integer", "required": False, "default": 1}, {"in": "query", "name": "size", "type": "integer", "required": False, "default": 10}], "responses": {"200": {"description": "Lista paginada de departamentos"}}},
@@ -137,7 +137,7 @@ swagger = Swagger(app, template={
         },
         "/vacaciones": {"post": {"tags": ["Vacaciones"], "summary": "Programa vacaciones", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/VacationRequest"}}], "responses": {"201": {"description": "Vacaciones programadas"}}}},
         "/vacaciones/{cedula}": {"get": {"tags": ["Vacaciones"], "summary": "Consulta vacaciones por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}], "responses": {"200": {"description": "Historial de vacaciones"}}}},
-        "/vacaciones/{id}/estado": {"put": {"tags": ["Vacaciones"], "summary": "Actualiza estado de vacaciones", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "integer", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"type": "object", "required": ["estado"], "properties": {"estado": {"type": "string", "example": "Cancelada"}}}}], "responses": {"200": {"description": "Estado actualizado"}}}},
+        "/vacaciones/{cedula}/estado": {"put": {"tags": ["Vacaciones"], "summary": "Actualiza estado de vacaciones por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"type": "object", "required": ["estado"], "properties": {"estado": {"type": "string", "example": "Cancelada"}}}}], "responses": {"200": {"description": "Estado actualizado"}}}},
         "/notificaciones": {"get": {"tags": ["Notificaciones"], "summary": "Lista notificaciones", "security": [{"Bearer": []}], "responses": {"200": {"description": "Lista de notificaciones"}}}},
         "/notificaciones/{empleadoId}": {"get": {"tags": ["Notificaciones"], "summary": "Lista notificaciones por empleadoId", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "empleadoId", "type": "string", "required": True}], "responses": {"200": {"description": "Notificaciones del empleado"}, "404": {"description": "Sin notificaciones"}}}},
     },
@@ -287,31 +287,35 @@ def employees():
     return proxy(EMPLEADOS_SERVICE_URL, "/empleados")
 
 
-# Operaciones expuestas: GET/PUT/DELETE /empleados/{id} y /employees/{id}.
+# Operaciones expuestas: GET/PUT/DELETE /empleados/{cedula} y /employees/{cedula}.
 # GET compone "empleado + perfil"; PUT/DELETE actualizan/eliminan empleado (solo ADMIN).
-@app.route("/empleados/<employee_id>", methods=["GET", "PUT", "DELETE"])
-@app.route("/employees/<employee_id>", methods=["GET", "PUT", "DELETE"])
+@app.route("/empleados/<cedula>", methods=["GET", "PUT", "DELETE"])
+@app.route("/employees/<cedula>", methods=["GET", "PUT", "DELETE"])
 @requiere_auth("ADMIN", "USER")
-def employee_by_id(employee_id):
+def employee_by_cedula(cedula):
     if request.method in {"PUT", "DELETE"} and g.jwt_payload.get("role") != "ADMIN":
         return respuesta_error("Permiso denegado", 403)
     if request.method != "GET":
-        return proxy(EMPLEADOS_SERVICE_URL, f"/empleados/{employee_id}")
+        return proxy(EMPLEADOS_SERVICE_URL, f"/empleados/{cedula}")
 
     # Composicion de respuesta desde dos microservicios:
-    # - empleados-service -> datos base del empleado
-    # - perfiles-service  -> perfil del empleado
-    empleado_response, empleado_body = pedir_json(EMPLEADOS_SERVICE_URL, f"/empleados/{employee_id}")
+    # - empleados-service -> datos base del empleado (por cedula)
+    # - perfiles-service  -> perfil del empleado (por empleado_id interno)
+    empleado_response, empleado_body = pedir_json(EMPLEADOS_SERVICE_URL, f"/empleados/{cedula}")
     if empleado_response.status_code != 200:
         return responder_backend(empleado_response)
 
-    perfil_response, perfil_body = pedir_json(PERFILES_SERVICE_URL, f"/perfiles/{employee_id}")
-    perfil = None if perfil_response.status_code == 404 else data_de_respuesta(perfil_body)
-    if perfil_response.status_code not in (200, 404):
-        return responder_backend(perfil_response)
+    emp_data = data_de_respuesta(empleado_body)
+    emp_id = emp_data.get("id") if isinstance(emp_data, dict) else None
+
+    perfil = None
+    if emp_id:
+        perfil_response, perfil_body = pedir_json(PERFILES_SERVICE_URL, f"/perfiles/{emp_id}")
+        if perfil_response.status_code == 200:
+            perfil = data_de_respuesta(perfil_body)
 
     return respuesta_exitosa("Empleado completo", {
-        "employee": data_de_respuesta(empleado_body),
+        "employee": emp_data,
         "profile": perfil,
     })
 
@@ -394,12 +398,12 @@ def vacations_self():
     return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{cedula}")
 
 
-# Operacion expuesta: PUT /vacaciones/{id}/estado y /vacations/{id}/status.
-@app.route("/vacaciones/<vacation_id>/estado", methods=["PUT"])
-@app.route("/vacations/<vacation_id>/status", methods=["PUT"])
+# Operacion expuesta: PUT /vacaciones/{cedula}/estado y /vacations/{cedula}/status.
+@app.route("/vacaciones/<cedula>/estado", methods=["PUT"])
+@app.route("/vacations/<cedula>/status", methods=["PUT"])
 @requiere_auth("ADMIN", "USER")
-def update_vacation_status(vacation_id):
-    return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{vacation_id}/estado")
+def update_vacation_status(cedula):
+    return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{cedula}/estado")
 
 
 # Operacion expuesta: GET /notificaciones.
