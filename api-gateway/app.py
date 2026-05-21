@@ -5,6 +5,7 @@ import os
 import jwt
 import requests
 from dotenv import load_dotenv
+from flasgger import Swagger
 from flask import Flask, Response, g, jsonify, request
 from opentelemetry import trace
 from opentelemetry.exporter.zipkin.json import ZipkinExporter
@@ -19,6 +20,128 @@ from pythonjsonlogger import jsonlogger
 load_dotenv()
 
 app = Flask(__name__)
+
+swagger = Swagger(app, template={
+    "swagger": "2.0",
+    "info": {
+        "title": "API Gateway - CheckIn Microservicios",
+        "description": (
+            "Punto unico de entrada para autenticacion, empleados, perfiles y vacaciones. "
+            "El gateway valida JWT y reenvia solicitudes a los microservicios internos."
+        ),
+        "version": "1.0.0",
+    },
+    "basePath": "/",
+    "schemes": ["http"],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header",
+            "description": "JWT usando el esquema Bearer. Ejemplo: Authorization: Bearer {token}",
+        }
+    },
+    "tags": [
+        {"name": "Auth", "description": "Autenticacion y credenciales"},
+        {"name": "Empleados", "description": "Gestion de empleados"},
+        {"name": "Departamentos", "description": "Gestion de departamentos"},
+        {"name": "Perfiles", "description": "Gestion de perfiles"},
+        {"name": "Vacaciones", "description": "Gestion de vacaciones"},
+        {"name": "Notificaciones", "description": "Consulta de notificaciones"},
+    ],
+    "definitions": {
+        "ApiResponse": {
+            "type": "object",
+            "properties": {
+                "success": {"type": "boolean"},
+                "message": {"type": "string"},
+                "data": {"type": "object"},
+            },
+        },
+        "LoginRequest": {
+            "type": "object",
+            "required": ["username", "password"],
+            "properties": {
+                "username": {"type": "string", "example": "admin"},
+                "password": {"type": "string", "example": "admin123"},
+            },
+        },
+        "ChangePasswordRequest": {
+            "type": "object",
+            "required": ["current_password", "new_password"],
+            "properties": {
+                "current_password": {"type": "string", "example": "admin123"},
+                "new_password": {"type": "string", "example": "Nuevo123!"},
+            },
+        },
+        "EmployeeRequest": {
+            "type": "object",
+            "required": ["cedula", "nombre", "email", "departamentoId"],
+            "properties": {
+                "cedula": {"type": "string", "example": "123456789"},
+                "nombre": {"type": "string", "example": "Ana Gomez"},
+                "email": {"type": "string", "example": "ana.gomez@empresa.com"},
+                "departamentoId": {"type": "string", "example": "IT"},
+                "fechaIngreso": {"type": "string", "format": "date", "example": "2026-05-20"},
+                "password": {"type": "string", "example": "Vac12345!"},
+            },
+        },
+        "DepartmentRequest": {
+            "type": "object",
+            "required": ["id", "nombre", "descripcion"],
+            "properties": {
+                "id": {"type": "string", "example": "IT"},
+                "nombre": {"type": "string", "example": "Tecnologia"},
+                "descripcion": {"type": "string", "example": "Departamento de TI"},
+            },
+        },
+        "ProfileRequest": {
+            "type": "object",
+            "properties": {
+                "telefono": {"type": "string", "example": "3001234567"},
+                "direccion": {"type": "string", "example": "Calle 123"},
+                "cargo": {"type": "string", "example": "Analista"},
+            },
+        },
+        "VacationRequest": {
+            "type": "object",
+            "required": ["cedula", "fecha_inicio", "fecha_fin"],
+            "properties": {
+                "cedula": {"type": "string", "example": "123456789"},
+                "fecha_inicio": {"type": "string", "format": "date", "example": "2026-06-10"},
+                "fecha_fin": {"type": "string", "format": "date", "example": "2026-06-15"},
+            },
+        },
+    },
+    "paths": {
+        "/auth/login": {"post": {"tags": ["Auth"], "summary": "Inicia sesion y obtiene un JWT", "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/LoginRequest"}}], "responses": {"200": {"description": "Login exitoso"}, "401": {"description": "Credenciales invalidas"}}}},
+        "/auth/change-password": {"post": {"tags": ["Auth"], "summary": "Cambia la contrasena del usuario autenticado", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/ChangePasswordRequest"}}], "responses": {"200": {"description": "Contrasena actualizada"}, "401": {"description": "Token invalido o ausente"}}}},
+        "/empleados": {
+            "get": {"tags": ["Empleados"], "summary": "Lista empleados con paginacion", "security": [{"Bearer": []}], "parameters": [{"in": "query", "name": "page", "type": "integer", "required": False, "default": 1}, {"in": "query", "name": "size", "type": "integer", "required": False, "default": 10}], "responses": {"200": {"description": "Lista paginada de empleados"}}},
+            "post": {"tags": ["Empleados"], "summary": "Crea un empleado", "description": "Operacion permitida solo para rol ADMIN.", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/EmployeeRequest"}}], "responses": {"201": {"description": "Empleado creado"}, "403": {"description": "Permiso denegado"}}},
+        },
+        "/empleados/{id}": {
+            "get": {"tags": ["Empleados"], "summary": "Obtiene un empleado con su perfil", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado completo"}, "404": {"description": "Empleado no encontrado"}}},
+            "put": {"tags": ["Empleados"], "summary": "Actualiza un empleado", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/EmployeeRequest"}}], "responses": {"200": {"description": "Empleado actualizado"}}},
+            "delete": {"tags": ["Empleados"], "summary": "Elimina un empleado", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}], "responses": {"200": {"description": "Empleado eliminado"}}},
+        },
+        "/departamentos": {
+            "get": {"tags": ["Departamentos"], "summary": "Lista departamentos con paginacion", "security": [{"Bearer": []}], "parameters": [{"in": "query", "name": "page", "type": "integer", "required": False, "default": 1}, {"in": "query", "name": "size", "type": "integer", "required": False, "default": 10}], "responses": {"200": {"description": "Lista paginada de departamentos"}}},
+            "post": {"tags": ["Departamentos"], "summary": "Crea un departamento", "description": "Operacion permitida solo para rol ADMIN.", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/DepartmentRequest"}}], "responses": {"201": {"description": "Departamento creado"}}},
+        },
+        "/departamentos/{id}": {"get": {"tags": ["Departamentos"], "summary": "Obtiene un departamento por id", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "string", "required": True}], "responses": {"200": {"description": "Departamento encontrado"}, "404": {"description": "Departamento no encontrado"}}}},
+        "/perfiles": {"get": {"tags": ["Perfiles"], "summary": "Lista perfiles", "security": [{"Bearer": []}], "responses": {"200": {"description": "Lista de perfiles"}}}},
+        "/perfiles/{empleadoId}": {
+            "get": {"tags": ["Perfiles"], "summary": "Consulta perfil por empleadoId", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "empleadoId", "type": "string", "required": True}], "responses": {"200": {"description": "Perfil encontrado"}, "404": {"description": "Perfil no encontrado"}}},
+            "put": {"tags": ["Perfiles"], "summary": "Actualiza perfil por empleadoId", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "empleadoId", "type": "string", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/ProfileRequest"}}], "responses": {"200": {"description": "Perfil actualizado"}}},
+        },
+        "/vacaciones": {"post": {"tags": ["Vacaciones"], "summary": "Programa vacaciones", "security": [{"Bearer": []}], "parameters": [{"in": "body", "name": "body", "required": True, "schema": {"$ref": "#/definitions/VacationRequest"}}], "responses": {"201": {"description": "Vacaciones programadas"}}}},
+        "/vacaciones/{cedula}": {"get": {"tags": ["Vacaciones"], "summary": "Consulta vacaciones por cedula", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "cedula", "type": "string", "required": True}], "responses": {"200": {"description": "Historial de vacaciones"}}}},
+        "/vacaciones/{id}/estado": {"put": {"tags": ["Vacaciones"], "summary": "Actualiza estado de vacaciones", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "id", "type": "integer", "required": True}, {"in": "body", "name": "body", "required": True, "schema": {"type": "object", "required": ["estado"], "properties": {"estado": {"type": "string", "example": "Cancelada"}}}}], "responses": {"200": {"description": "Estado actualizado"}}}},
+        "/notificaciones": {"get": {"tags": ["Notificaciones"], "summary": "Lista notificaciones", "security": [{"Bearer": []}], "responses": {"200": {"description": "Lista de notificaciones"}}}},
+        "/notificaciones/{empleadoId}": {"get": {"tags": ["Notificaciones"], "summary": "Lista notificaciones por empleadoId", "security": [{"Bearer": []}], "parameters": [{"in": "path", "name": "empleadoId", "type": "string", "required": True}], "responses": {"200": {"description": "Notificaciones del empleado"}, "404": {"description": "Sin notificaciones"}}}},
+    },
+})
 
 logger = logging.getLogger()
 handler = logging.StreamHandler()
@@ -38,8 +161,10 @@ JWT_SECRET = os.getenv("JWT_SECRET", "supersecretosupersecretosupersecreto")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 AUTH_SERVICE_URL = os.getenv("AUTH_SERVICE_URL", "http://auth-service")
 EMPLEADOS_SERVICE_URL = os.getenv("EMPLEADOS_SERVICE_URL", "http://empleados-service")
+DEPARTAMENTOS_SERVICE_URL = os.getenv("DEPARTAMENTOS_SERVICE_URL", "http://departamentos-service:8081")
 PERFILES_SERVICE_URL = os.getenv("PERFILES_SERVICE_URL", "http://perfiles-service:8083")
 VACACIONES_SERVICE_URL = os.getenv("VACACIONES_SERVICE_URL", "http://vacaciones-service")
+NOTIFICACIONES_SERVICE_URL = os.getenv("NOTIFICACIONES_SERVICE_URL", "http://notificaciones-service:8084")
 REQUEST_TIMEOUT_SECONDS = int(os.getenv("REQUEST_TIMEOUT_SECONDS", "8"))
 
 
@@ -138,16 +263,6 @@ def data_de_respuesta(body):
     return body
 
 
-def empleado_id_autenticado():
-    payload = getattr(g, "jwt_payload", {})
-    return payload.get("empleadoId") or payload.get("empleado_id") or payload.get("id")
-
-
-@app.get("/health")
-def health():
-    return respuesta_exitosa("api-gateway OK")
-
-
 # Operacion expuesta: POST /auth/login (autenticacion).
 @app.post("/auth/login")
 def login():
@@ -161,9 +276,9 @@ def change_password():
     return proxy(AUTH_SERVICE_URL, "/auth/change-password")
 
 
-# Operaciones expuestas: GET/POST /employees.
+# Operaciones expuestas: GET/POST /empleados.
 # GET lista empleados; POST crea empleado (solo ADMIN).
-@app.route("/employees", methods=["GET", "POST"])
+@app.route("/empleados", methods=["GET", "POST"])
 @requiere_auth("ADMIN", "USER")
 def employees():
     if request.method == "POST" and g.jwt_payload.get("role") != "ADMIN":
@@ -171,9 +286,9 @@ def employees():
     return proxy(EMPLEADOS_SERVICE_URL, "/empleados")
 
 
-# Operaciones expuestas: GET/PUT/DELETE /employees/{id}.
+# Operaciones expuestas: GET/PUT/DELETE /empleados/{id}.
 # GET compone "empleado + perfil"; PUT/DELETE actualizan/eliminan empleado (solo ADMIN).
-@app.route("/employees/<employee_id>", methods=["GET", "PUT", "DELETE"])
+@app.route("/empleados/<employee_id>", methods=["GET", "PUT", "DELETE"])
 @requiere_auth("ADMIN", "USER")
 def employee_by_id(employee_id):
     if request.method in {"PUT", "DELETE"} and g.jwt_payload.get("role") != "ADMIN":
@@ -199,38 +314,70 @@ def employee_by_id(employee_id):
     })
 
 
-# Operaciones expuestas: GET/PUT /profile del empleado autenticado.
-@app.route("/profile", methods=["GET", "PUT"])
+# Operaciones expuestas: GET/POST /departamentos.
+# GET lista departamentos; POST crea departamento (solo ADMIN).
+@app.route("/departamentos", methods=["GET", "POST"])
 @requiere_auth("ADMIN", "USER")
-def own_profile():
-    employee_id = empleado_id_autenticado()
-    if not employee_id:
-        return respuesta_error("El token no contiene empleadoId", 400)
+def departments():
+    if request.method == "POST" and g.jwt_payload.get("role") != "ADMIN":
+        return respuesta_error("Permiso denegado", 403)
+    return proxy(DEPARTAMENTOS_SERVICE_URL, "/departamentos")
+
+
+# Operacion expuesta: GET /departamentos/{id}.
+@app.get("/departamentos/<department_id>")
+@requiere_auth("ADMIN", "USER")
+def department_by_id(department_id):
+    return proxy(DEPARTAMENTOS_SERVICE_URL, f"/departamentos/{department_id}")
+
+
+# Operacion expuesta: GET /perfiles.
+@app.get("/perfiles")
+@requiere_auth("ADMIN", "USER")
+def profiles():
+    return proxy(PERFILES_SERVICE_URL, "/perfiles")
+
+
+# Operaciones expuestas: GET/PUT /perfiles/{empleadoId}.
+@app.route("/perfiles/<employee_id>", methods=["GET", "PUT"])
+@requiere_auth("ADMIN", "USER")
+def profile_by_employee_id(employee_id):
     return proxy(PERFILES_SERVICE_URL, f"/perfiles/{employee_id}")
 
 
-# Operaciones expuestas: POST /vacations y GET /vacations.
-# POST programa vacaciones; GET consulta vacaciones por cedula.
-@app.route("/vacations", methods=["GET", "POST"])
+# Operacion expuesta: POST /vacaciones.
+@app.post("/vacaciones")
 @requiere_auth("ADMIN", "USER")
-def vacations():
-    if request.method == "POST":
-        return proxy(VACACIONES_SERVICE_URL, "/vacaciones")
+def create_vacation():
+    return proxy(VACACIONES_SERVICE_URL, "/vacaciones")
 
-    cedula = request.args.get("cedula")
-    if not cedula:
-        employee_id = empleado_id_autenticado()
-        if not employee_id:
-            return respuesta_error("Use ?cedula=... o autentiquese con un token que tenga empleadoId", 400)
-        empleado_response, empleado_body = pedir_json(EMPLEADOS_SERVICE_URL, f"/empleados/{employee_id}")
-        if empleado_response.status_code != 200:
-            return responder_backend(empleado_response)
-        empleado = data_de_respuesta(empleado_body) or {}
-        cedula = empleado.get("cedula")
 
-    if not cedula:
-        return respuesta_error("No fue posible resolver la cedula del empleado", 400)
+# Operacion expuesta: GET /vacaciones/{cedula}.
+@app.get("/vacaciones/<cedula>")
+@requiere_auth("ADMIN", "USER")
+def vacations_by_employee(cedula):
     return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{cedula}")
+
+
+# Operacion expuesta: PUT /vacaciones/{id}/estado.
+@app.put("/vacaciones/<vacation_id>/estado")
+@requiere_auth("ADMIN", "USER")
+def update_vacation_status(vacation_id):
+    return proxy(VACACIONES_SERVICE_URL, f"/vacaciones/{vacation_id}/estado")
+
+
+# Operacion expuesta: GET /notificaciones.
+@app.get("/notificaciones")
+@requiere_auth("ADMIN", "USER")
+def notifications():
+    return proxy(NOTIFICACIONES_SERVICE_URL, "/notificaciones")
+
+
+# Operacion expuesta: GET /notificaciones/{empleadoId}.
+@app.get("/notificaciones/<employee_id>")
+@requiere_auth("ADMIN", "USER")
+def notifications_by_employee(employee_id):
+    return proxy(NOTIFICACIONES_SERVICE_URL, f"/notificaciones/{employee_id}")
 
 
 if __name__ == "__main__":

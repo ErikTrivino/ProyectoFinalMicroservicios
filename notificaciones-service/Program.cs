@@ -112,6 +112,7 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 // RabbitMQ Consumer (BackgroundService)
+builder.Services.AddTransient<IEmailService, SmtpEmailService>();
 builder.Services.AddHostedService<RabbitMQConsumerService>();
 
 var app = builder.Build();

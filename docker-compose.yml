@@ -34,8 +34,10 @@ services:
     environment:
       AUTH_SERVICE_URL: http://auth-service
       EMPLEADOS_SERVICE_URL: http://empleados-service
+      DEPARTAMENTOS_SERVICE_URL: http://departamentos-service:8081
       PERFILES_SERVICE_URL: http://perfiles-service:8083
       VACACIONES_SERVICE_URL: http://vacaciones-service
+      NOTIFICACIONES_SERVICE_URL: http://notificaciones-service:8084
       JWT_SECRET: supersecretosupersecretosupersecreto
       JWT_ALGORITHM: HS256
       OTEL_SERVICE_NAME: api-gateway
@@ -43,8 +45,10 @@ services:
     depends_on:
       - auth-service
       - empleados-service
+      - departamentos-service
       - perfiles-service
       - vacaciones-service
+      - notificaciones-service
     networks:
       - checkin-net
     ports:
@@ -158,8 +162,9 @@ services:
     healthcheck:
       test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
-      timeout: 5s
-      retries: 5
+      timeout: 10s
+      retries: 12
+      start_period: 120s
 
   # ==================================================
   # BASE DE DATOS - EMPLEADOS
@@ -342,6 +347,13 @@ services:
       RabbitMQ__Port: 5672
       RabbitMQ__User: admin
       RabbitMQ__Password: admin
+      Smtp__Host: smtp.gmail.com
+      Smtp__Port: "587"
+      Smtp__Username: "erikpablot28@gmail.com"
+      Smtp__Password: "xfnc mmvs hmkl detu"
+      Smtp__From: "erikpablot28@gmail.com"
+      Smtp__EnableSsl: "true"
+      Smtp__ToOverride: "microserviciotest@gmail.com"
     depends_on:
       database-notificaciones:
         condition: service_healthy
